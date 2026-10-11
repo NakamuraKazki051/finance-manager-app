@@ -104,3 +104,7 @@ docker compose down    # 停止（データはボリュームに保持）
 ```
 
 低メモリ環境向けに `postgres:16-alpine` を使用し、コンテナのメモリ上限を256MBに制限しています。バックエンドの起動方法は [`backend/README.md`](./backend/README.md) を参照してください。
+
+## AWS（EC2）環境
+
+`infra/terraform/` に、AWSの無料枠の範囲でEC2を1台作るTerraformの設定があります。作り方・費用の注意点は [`infra/terraform/README.md`](./infra/terraform/README.md) を参照してください。

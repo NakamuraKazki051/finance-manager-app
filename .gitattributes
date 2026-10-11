@@ -1,0 +1,2 @@
+# EC2（Linux）で実行するスクリプトは、Windowsで編集してもLF改行のまま保つ
+*.sh text eol=lf
