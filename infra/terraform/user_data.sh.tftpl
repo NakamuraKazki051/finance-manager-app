@@ -1,7 +1,20 @@
 #!/bin/bash
-# EC2の初回起動時に1回だけ実行されるセットアップ。
-# Docker と DB（PostgreSQL）までを用意する。アプリ本体（app.jar）は後でデプロイする。
+# EC2の初回起動時に1回だけ実行されるセットアップ（Terraform の templatefile で値を埋め込む）。
+# Docker・DB（PostgreSQL）・フロントエンド用のWebサーバー（nginx）までを用意する。
+# アプリ本体（app.jar とフロントエンドのファイル）は後でデプロイする。
+#   フロントエンド: 80番   → nginx が /opt/task-manager/frontend を配信
+#   バックエンド:   8080番 → Spring Boot（app.jar）
+# ※ docker compose の変数はドル記号を2つ重ねて書く（Terraform を通ると1つになる）
 set -euxo pipefail
+
+# Elastic IP の付け替え直後などで通信が一瞬切れても、失敗せずにやり直す
+retry() {
+  for i in 1 2 3 4 5; do
+    "$@" && return 0
+    sleep 10
+  done
+  return 1
+}
 
 # メモリ1GBでは Spring Boot と PostgreSQL が同時に動かないことがあるので、2GBのスワップを作る
 if [ ! -f /swapfile ]; then
@@ -12,23 +25,33 @@ if [ ! -f /swapfile ]; then
   echo '/swapfile none swap sw 0 0' >> /etc/fstab
 fi
 
-dnf install -y docker
+retry dnf install -y docker
 systemctl enable --now docker
 
 # Amazon Linux 2023 の docker パッケージには compose が入っていないので追加する
 mkdir -p /usr/local/lib/docker/cli-plugins
-curl -fsSL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" \
+retry curl -fsSL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" \
   -o /usr/local/lib/docker/cli-plugins/docker-compose
 chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
 APP_DIR=/opt/task-manager
-mkdir -p "$APP_DIR"
+mkdir -p "$APP_DIR/frontend"
 cd "$APP_DIR"
 
 # DBのパスワードはサーバー上で作り、Terraform の state やGitには残さない
 if [ ! -f .env ]; then
   echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" > .env
   chmod 600 .env
+fi
+
+# フロントエンドをデプロイするまでの仮のページ
+if [ ! -f frontend/index.html ]; then
+  cat > frontend/index.html <<'EOF'
+<!doctype html>
+<html lang="ja"><meta charset="utf-8"><title>準備中</title>
+<p>タスク管理アプリは準備中です。</p>
+</html>
+EOF
 fi
 
 cat > docker-compose.yml <<'EOF'
@@ -39,7 +62,7 @@ services:
     environment:
       POSTGRES_DB: taskmanager
       POSTGRES_USER: taskmanager
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: $${POSTGRES_PASSWORD}
     volumes:
       - db-data:/var/lib/postgresql/data
     mem_limit: 256m
@@ -48,6 +71,16 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # フロントエンド（index.html / style.css / app.js）を frontend/ に置くと、80番で配信される
+  web:
+    image: nginx:alpine
+    restart: unless-stopped
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    ports:
+      - "80:80"
+    mem_limit: 64m
 
   # app.jar を /opt/task-manager に置いてから `docker compose up -d app` で起動する
   app:
@@ -59,16 +92,18 @@ services:
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/taskmanager
       SPRING_DATASOURCE_USERNAME: taskmanager
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      SPRING_DATASOURCE_PASSWORD: $${POSTGRES_PASSWORD}
+      # 80番で開いたフロントエンドから、Cookie付きでAPIを呼べるようにする
+      APP_CORS_ALLOWED_ORIGINS: ${frontend_origin}
     volumes:
       - ./app.jar:/app/app.jar:ro
     command: ["java", "-Xmx384m", "-Xss512k", "-XX:MaxMetaspaceSize=128m", "-jar", "/app/app.jar"]
     ports:
-      - "80:8080"
+      - "8080:8080"
     mem_limit: 640m
 
 volumes:
   db-data:
 EOF
 
-docker compose up -d db
+retry docker compose up -d db web

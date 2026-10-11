@@ -4,13 +4,18 @@ output "instance_id" {
 }
 
 output "public_ip" {
-  description = "EC2のパブリックIP（サーバーを止めて起動し直すと変わる）"
-  value       = aws_instance.app.public_ip
+  description = "EC2の固定IP（Elastic IP）"
+  value       = aws_eip.app.public_ip
 }
 
-output "app_url" {
-  description = "アプリをデプロイしたあとにブラウザで開くURL"
-  value       = "http://${aws_instance.app.public_ip}/"
+output "frontend_url" {
+  description = "フロントエンド（80番）。ブラウザで開くURL"
+  value       = "http://${aws_eip.app.public_ip}/"
+}
+
+output "backend_url" {
+  description = "バックエンドAPI（8080番）"
+  value       = "http://${aws_eip.app.public_ip}:8080/"
 }
 
 output "connect_command" {

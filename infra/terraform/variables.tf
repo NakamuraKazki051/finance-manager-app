@@ -28,7 +28,7 @@ variable "root_volume_size" {
 }
 
 variable "allowed_http_cidrs" {
-  description = "ブラウザでアクセスを許可するIPの範囲。自分だけに絞るなら [\"<自分のIP>/32\"]"
+  description = "フロントエンド（80番）とバックエンド（8080番）にアクセスを許可するIPの範囲。自分だけに絞るなら [\"<自分のIP>/32\"]"
   type        = list(string)
   default     = ["0.0.0.0/0"]
 }

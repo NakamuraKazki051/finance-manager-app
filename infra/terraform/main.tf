@@ -22,18 +22,31 @@ data "aws_ssm_parameter" "al2023_ami" {
 
 resource "aws_security_group" "app" {
   name        = "${var.project}-app"
-  description = "HTTP only. No SSH; use Session Manager."
+  description = "Frontend (80) and backend API (8080). No SSH; use Session Manager."
   vpc_id      = data.aws_vpc.default.id
 }
 
-resource "aws_vpc_security_group_ingress_rule" "http" {
-  for_each = toset(var.allowed_http_cidrs)
+locals {
+  # フロントエンドとバックエンドを別のポートで公開する
+  app_ports = {
+    frontend = 80
+    backend  = 8080
+  }
+
+  ingress_rules = {
+    for pair in setproduct(keys(local.app_ports), var.allowed_http_cidrs) :
+    "${pair[0]}-${pair[1]}" => { name = pair[0], port = local.app_ports[pair[0]], cidr = pair[1] }
+  }
+}
+
+resource "aws_vpc_security_group_ingress_rule" "app" {
+  for_each = local.ingress_rules
 
   security_group_id = aws_security_group.app.id
-  description       = "HTTP"
-  cidr_ipv4         = each.value
-  from_port         = 80
-  to_port           = 80
+  description       = each.value.name
+  cidr_ipv4         = each.value.cidr
+  from_port         = each.value.port
+  to_port           = each.value.port
   ip_protocol       = "tcp"
 }
 
@@ -74,7 +87,9 @@ resource "aws_instance" "app" {
   vpc_security_group_ids      = [aws_security_group.app.id]
   iam_instance_profile        = aws_iam_instance_profile.ec2.name
   associate_public_ip_address = true
-  user_data                   = file("${path.module}/user_data.sh")
+  user_data = templatefile("${path.module}/user_data.sh.tftpl", {
+    frontend_origin = "http://${aws_eip.app.public_ip}"
+  })
 
   # CPUを使いすぎたときに追加料金が出る「unlimited」モードにしない
   credit_specification {
@@ -101,4 +116,19 @@ resource "aws_instance" "app" {
     # 新しいAMIが出るたびにサーバーが作り直されないようにする
     ignore_changes = [ami, user_data]
   }
+}
+
+# 固定のIPアドレス。フロントエンドのURL（CORSで許可するオリジン）が、サーバーを止めても変わらないようにする
+# EC2に付けている間の料金は、自動で割り当てられるIPと同じ。EC2から外したまま残すと料金だけかかるので注意
+resource "aws_eip" "app" {
+  domain = "vpc"
+
+  tags = {
+    Name = var.project
+  }
+}
+
+resource "aws_eip_association" "app" {
+  instance_id   = aws_instance.app.id
+  allocation_id = aws_eip.app.id
 }
