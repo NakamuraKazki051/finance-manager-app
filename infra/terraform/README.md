@@ -1,38 +1,50 @@
 # EC2環境（Terraform）
 
-AWSの無料枠の範囲で、タスク管理アプリを動かすEC2を1台作ります。
+AWSの無料枠の範囲で、タスク管理アプリを動かすEC2を1台と、RDS（PostgreSQL）を1台作ります。
 
 ## 作られるもの
 
 | リソース | 内容 |
 |---|---|
 | EC2 | `t3.micro`（無料枠の対象）、Amazon Linux 2023、ディスク20GB（gp3・暗号化） |
+| RDS | PostgreSQL 16、`db.t4g.micro`（無料枠の対象）、シングルAZ、ストレージ20GB（暗号化）、自動バックアップ1日分 |
 | Elastic IP | 固定のIPアドレス。サーバーを止めて起動し直してもURLが変わらない |
-| セキュリティグループ | フロントエンド（80番）とバックエンド（8080番）だけ開ける。SSH（22番）は開けない |
-| IAMロール | Session Manager でサーバーに入るための権限（`AmazonSSMManagedInstanceCore`）だけ |
+| セキュリティグループ（EC2） | 80番（nginx）だけ開ける。8080番は `expose_backend_port = true` のときだけ。SSH（22番）は開けない |
+| セキュリティグループ（RDS） | 5432番を **アプリのEC2からだけ** 許可する。RDSはインターネットから接続できない（`publicly_accessible = false`） |
+| Parameter Store | DBのパスワード（SecureString。標準パラメータなので無料） |
+| IAMロール | Session Manager の権限と、DBのパスワードのパラメータ1つを読む権限だけ |
 
-## ポートの分け方
+## 構成
+
+```
+ブラウザ ──80──▶ nginx ──/api/──▶ Spring Boot（8080, Java 25）──5432──▶ RDS（PostgreSQL）
+                  └─ それ以外 ─▶ フロントエンドのファイル
+```
 
 | ポート | 役割 | 中身 |
 |---|---|---|
-| 80 | フロントエンド | nginx が `/opt/task-manager/frontend/`（`index.html` / `style.css` / `app.js`）を配信する |
-| 8080 | バックエンドAPI | Spring Boot（`/opt/task-manager/app.jar`） |
+| 80 | nginx | `/opt/task-manager/frontend/`（`index.html` / `style.css` / `app.js`）を配信し、`/api/` をバックエンドへ中継する |
+| 8080 | バックエンドAPI | Spring Boot（`/opt/task-manager/app.jar`、`eclipse-temurin:25-jre`） |
 
-フロントエンドの `app.js` は、ページを開いたのと同じホストの8080番をAPIの宛先にします。バックエンドには、環境変数 `APP_CORS_ALLOWED_ORIGINS` で、Elastic IP のフロントエンドのURL（`http://<IP>`）からのCookie付き通信を許可しています。
+フロントエンドとAPIが同じオリジン（`http://<IP>`）になるので、CORSの設定は要りません。
+
+DBのパスワードは、`terraform apply` の間だけ作られ、RDSと Parameter Store に直接渡されます（ephemeral + write-only）。Terraform の state にもGitにも残りません。作り直したいときは `db_password_version` を1つ増やして apply し、EC2の `/opt/task-manager/.env` も新しい値に書き換えます。
 
 サーバーの初回起動時に `user_data.sh.tftpl` が次の準備をします。
 
-- 2GBのスワップを作る（メモリ1GBで Spring Boot と PostgreSQL を同時に動かすため）
+- 2GBのスワップを作る（メモリ1GBで Spring Boot を動かすため）
 - Docker と Docker Compose を入れる
-- `/opt/task-manager/` に `docker-compose.yml` を置き、PostgreSQL（`db`）と nginx（`web`）を起動する
-  - nginx は、デプロイするまで「準備中」のページを表示する
-  - DBのパスワードはサーバー上でランダムに作り、`/opt/task-manager/.env` に保存する。Gitにも Terraform の state にも残らない
+- Parameter Store からDBのパスワードを読み、`/opt/task-manager/.env`（rootだけが読める）に保存する
+- `/opt/task-manager/` に `docker-compose.yml` と nginx の設定を置き、nginx（`web`）を起動する
+  - nginx は、デプロイするまで「準備中」のページを表示し、`/api/` には 502 を返す
 
 アプリ本体（フロントエンドのファイルと `app.jar`）のデプロイは、この設定には含まれていません。デプロイ後に `docker compose up -d app` でバックエンドを起動します。
 
 ## 無料枠に収めるための工夫と、注意点
 
-- RDS・NATゲートウェイ・ロードバランサーなど、有料になりやすい部品は使いません。DBも同じEC2で動かします
+- NATゲートウェイ・ロードバランサー・Secrets Manager など、有料になりやすい部品は使いません
+- RDSは無料枠の対象のサイズ（`db.t4g.micro`、シングルAZ、20GB）にし、Performance Insights と拡張モニタリングは使いません
+- **`terraform destroy` を実行すると、RDSのデータも消えます**（最終スナップショットは取りません）。消す前に、アプリの「エクスポート」でデータを書き出してください
 - CPUクレジットを `standard` にしています。CPUを使い切っても遅くなるだけで、追加料金はかかりません
 - **パブリックIPv4アドレス（Elastic IP）は無料枠の対象外です**（1時間あたり約0.005ドル、月に約3.6ドル）。無料プランのクレジットから引かれます
   - EC2を停止している間も、Elastic IP の料金はかかります。使わない期間が長いときは `terraform destroy` で消してください

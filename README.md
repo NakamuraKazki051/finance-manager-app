@@ -11,7 +11,7 @@ mvn package
 java -Xmx256m -Xss512k -XX:MaxMetaspaceSize=128m -jar target/task-manager-api-0.1.0.jar
 ```
 
-バックエンドが `http://localhost:8080` で起動した状態で、ブラウザで **`http://localhost:8080/`** を開いてください（`mvn package` 時にフロントエンド一式がバックエンドの静的リソースとして同梱されます）。バックエンドに接続できない場合は画面上部に赤いエラーバナーが表示されます。詳細な起動方法・API仕様は [`backend/README.md`](./backend/README.md) を参照してください。
+ビルドと起動には JDK 25 が必要です。バックエンドが `http://localhost:8080` で起動した状態で、ブラウザで **`http://localhost:8080/`** を開いてください（`mvn package` 時にフロントエンド一式がバックエンドの静的リソースとして同梱されます）。バックエンドに接続できない場合は画面上部に赤いエラーバナーが表示されます。詳細な起動方法・API仕様は [`backend/README.md`](./backend/README.md) を参照してください。
 
 **注意:** `index.html` を `file://` で直接（ダブルクリックで）開くと、ログイン機能が正しく動作しません。ブラウザはCookieのSameSite制限により、`file://` ページから `http://localhost:8080` への通信でセッションCookieを送信しないため、ログインしてもボードが表示されなかったり、リロードのたびにログアウト状態に戻ったりします。必ず `http://localhost:8080/` 経由で開いてください。
 
@@ -92,7 +92,7 @@ java -Xmx256m -Xss512k -XX:MaxMetaspaceSize=128m -jar target/task-manager-api-0.
 
 ## バックエンド
 
-`backend/` に、Spring Boot REST API（Java 17 / Spring Boot 4.1.1）を用意しています。本番/開発ではPostgreSQL（Dockerコンテナ）、テスト実行時はH2インメモリDBを使用します。詳細は [`backend/README.md`](./backend/README.md) を参照してください。
+`backend/` に、Spring Boot REST API（Java 25 / Spring Boot 4.1.1）を用意しています。本番/開発ではPostgreSQL（Dockerコンテナ）、テスト実行時はH2インメモリDBを使用します。詳細は [`backend/README.md`](./backend/README.md) を参照してください。
 
 ## PostgreSQLコンテナ（Docker）
 
@@ -107,4 +107,4 @@ docker compose down    # 停止（データはボリュームに保持）
 
 ## AWS（EC2）環境
 
-`infra/terraform/` に、AWSの無料枠の範囲でEC2を1台作るTerraformの設定があります。作り方・費用の注意点は [`infra/terraform/README.md`](./infra/terraform/README.md) を参照してください。
+`infra/terraform/` に、AWSの無料枠の範囲でEC2とRDS（PostgreSQL）を1台ずつ作るTerraformの設定があります。作り方・費用の注意点は [`infra/terraform/README.md`](./infra/terraform/README.md) を参照してください。

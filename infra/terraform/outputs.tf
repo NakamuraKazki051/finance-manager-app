@@ -8,14 +8,14 @@ output "public_ip" {
   value       = aws_eip.app.public_ip
 }
 
-output "frontend_url" {
-  description = "フロントエンド（80番）。ブラウザで開くURL"
+output "app_url" {
+  description = "ブラウザで開くURL（nginx、80番）"
   value       = "http://${aws_eip.app.public_ip}/"
 }
 
-output "backend_url" {
-  description = "バックエンドAPI（8080番）"
-  value       = "http://${aws_eip.app.public_ip}:8080/"
+output "db_endpoint" {
+  description = "RDSの接続先。EC2の中からだけ接続できる"
+  value       = aws_db_instance.db.address
 }
 
 output "connect_command" {
