@@ -1,0 +1,7 @@
+# このファイルを terraform.tfvars という名前でコピーして使う（terraform.tfvars はGitに入らない）
+
+# 自分の回線からだけ開けるようにする場合（https://checkip.amazonaws.com で自分のIPを確認できる）
+# allowed_http_cidrs = ["203.0.113.10/32"]
+
+# ARM（Graviton）の無料枠インスタンスを使う場合
+# instance_type = "t4g.micro"

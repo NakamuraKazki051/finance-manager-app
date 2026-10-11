@@ -1,0 +1,9 @@
+# state には作ったリソースの情報が入るので、Gitに入れない
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+# 自分のIPなどを書く個人用の設定
+*.tfvars
+!terraform.tfvars.example
