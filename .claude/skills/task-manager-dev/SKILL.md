@@ -43,13 +43,15 @@ description: task-manager-app（素のHTML/JS フロント + Spring Boot/Postgre
 ## この環境の注意点
 
 - **Python・Node は入っていない。** `python` は Windows ストアのスタブ、`node` は存在しない。ファイル編集は Edit/Write ツールで行う。多くのファイルは CRLF 改行なので、sed の一括置換は避ける。
+- **Java は 25。** PC標準の `java`（`JAVA_HOME`）は 17 のままなので、ビルド・テスト・起動では必ず `~/tools/jdk-25.0.4.1+1` を使う（Bash なら `export JAVA_HOME="/c/Users/kazki/tools/jdk-25.0.4.1+1"`、jar の起動は `"$JAVA_HOME/bin/java"`）。17 のままだと `release version 25 not supported` で失敗する。
 - **メモリが約6GBしかない。** Maven はシステムに入っておらず、`~/tools/apache-maven-3.9.16` にある。テストは次のコマンドで実行する（`-o` はオフライン実行）:
   ```bash
-  cd backend && MAVEN_OPTS="-Xmx384m" ~/tools/apache-maven-3.9.16/bin/mvn -q -o test \
+  cd backend && export JAVA_HOME="/c/Users/kazki/tools/jdk-25.0.4.1+1" && \
+    MAVEN_OPTS="-Xmx384m" ~/tools/apache-maven-3.9.16/bin/mvn -q -o test \
     -DargLine="-Xmx256m -Xss512k -XX:MaxMetaspaceSize=128m"
   ```
   数分かかるので `run_in_background` で流し、その間に別の作業を進める。結果は `backend/target/surefire-reports/*.xml` の `tests=` と `failures=` / `errors=` で確認する。ログはスクラッチパッドに出し、リポジトリの外に置き忘れない。
-- **サーバーの起動と動作確認。** `mvn -q -o package -DskipTests` で jar を作り、`java -Xmx256m -Xss512k -XX:MaxMetaspaceSize=128m -jar target/task-manager-api-0.1.0.jar` を `run_in_background` で起動する。Windows では起動中の jar はロックされるので、作り直す前に 8080 番を使っているプロセスのコマンドラインを確かめてから止める。セッションはメモリ上にあるため、**再起動するとユーザーはログアウトされる**。ブラウザでのログイン・アカウント登録はできないので、ユーザーにログインしてもらう。ログインが要らない確認は curl で行い、作ったテストユーザーは終わったら DB から消す。
+- **サーバーの起動と動作確認。** `mvn -q -o package -DskipTests` で jar を作り、`"$JAVA_HOME/bin/java" -Xmx256m -Xss512k -XX:MaxMetaspaceSize=128m -jar target/task-manager-api-0.1.0.jar`（JDK 25）を `run_in_background` で起動する。Windows では起動中の jar はロックされるので、作り直す前に 8080 番を使っているプロセスのコマンドラインを確かめてから止める。セッションはメモリ上にあるため、**再起動するとユーザーはログアウトされる**。ブラウザでのログイン・アカウント登録はできないので、ユーザーにログインしてもらう。ログインが要らない確認は curl で行い、作ったテストユーザーは終わったら DB から消す。
 - **Docker Desktop は自動起動しない。** ユーザーが手動で起動する運用で、本人も納得している。自動起動の設定は勧めない。Docker が止まっているとアプリを起動できずブラウザ確認ができないので、その場合は「未確認」とはっきり報告する。
 - **確認が終わったら、毎回すべて止める（ユーザーの指示、確認は不要）。** 8080番のサーバー → `docker compose stop`（DBコンテナ）→ `docker desktop stop`（Docker Desktop本体）の順に止める。データは名前付きボリューム `task-manager-app_db-data` に残るので、`docker compose down -v` のようにボリュームを消すコマンドは使わない。ユーザーがまだログインして操作するかもしれない途中では止めない。
 

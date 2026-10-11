@@ -10,11 +10,9 @@ const DEFAULT_COLUMNS = [
 const PRIORITY_LABEL = { high: '高', mid: '中', low: '低' };
 const TAG_COLORS = ['sky', 'lime', 'green', 'red', 'azure', 'purple', 'yellow', 'orange', 'pink', 'slate'];
 
-// APIは、ページを開いたのと同じホストの8080番で動いている前提
-// (ローカル: http://localhost:8080 / EC2: フロントは80番、APIは8080番)
-const API_BASE = location.protocol.startsWith('http')
-  ? `${location.protocol}//${location.hostname}:8080`
-  : 'http://localhost:8080';
+// APIは、ページを開いたのと同じオリジンの /api/ にある前提
+// (ローカル: http://localhost:8080 / EC2: nginx（80番）が /api/ をバックエンド（8080番）へ中継)
+const API_BASE = location.protocol.startsWith('http') ? location.origin : 'http://localhost:8080';
 
 function tagColorClass(name) {
   let hash = 0;

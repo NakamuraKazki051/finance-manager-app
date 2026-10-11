@@ -4,7 +4,7 @@
 
 ## 技術構成
 
-- Java 17 / Spring Boot 4.1.1
+- Java 25 / Spring Boot 4.1.1（ビルド・実行には JDK 25 が必要）
 - Spring Web, Spring Data JPA, PostgreSQL（本番/開発用途、Dockerコンテナで起動）
 - テスト実行時はH2インメモリDBを使用（`src/test/resources/application.yml`）し、Dockerなしでも `mvn test` が通る
 

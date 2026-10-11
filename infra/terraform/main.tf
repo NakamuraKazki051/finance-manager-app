@@ -1,5 +1,5 @@
 # 無料枠に収めるための方針
-# - サーバーは EC2 1台だけ。DB（PostgreSQL）も同じEC2のDockerで動かす（RDSは使わない）
+# - サーバーは EC2 1台、DBは RDS（PostgreSQL）1台。どちらも無料枠の対象のサイズにする
 # - VPC は最初からあるデフォルトVPCを使う（NATゲートウェイなど有料の部品を作らない）
 # - SSH の鍵もポート22も使わず、ログインは Systems Manager のセッションマネージャーで行う
 
@@ -22,16 +22,17 @@ data "aws_ssm_parameter" "al2023_ami" {
 
 resource "aws_security_group" "app" {
   name        = "${var.project}-app"
-  description = "Frontend (80) and backend API (8080). No SSH; use Session Manager."
+  description = "Frontend via nginx (80), optional backend API (8080). No SSH; use Session Manager."
   vpc_id      = data.aws_vpc.default.id
 }
 
 locals {
-  # フロントエンドとバックエンドを別のポートで公開する
-  app_ports = {
-    frontend = 80
-    backend  = 8080
-  }
+  # 80番: nginx（フロントエンドの配信と、/api/ をバックエンドへ中継）
+  # 8080番: バックエンド。expose_backend_port = true のときだけインターネットに開ける
+  app_ports = merge(
+    { frontend = 80 },
+    var.expose_backend_port ? { backend = 8080 } : {},
+  )
 
   ingress_rules = {
     for pair in setproduct(keys(local.app_ports), var.allowed_http_cidrs) :
@@ -52,7 +53,7 @@ resource "aws_vpc_security_group_ingress_rule" "app" {
 
 resource "aws_vpc_security_group_egress_rule" "all" {
   security_group_id = aws_security_group.app.id
-  description       = "Outbound for package install, Docker images and SSM"
+  description       = "Outbound for package install, Docker images, SSM and RDS"
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "-1"
 }
@@ -76,6 +77,21 @@ resource "aws_iam_role_policy_attachment" "ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+# EC2の起動時に、Parameter Store からDBのパスワードを読むための権限（このパラメータだけ）
+resource "aws_iam_role_policy" "read_db_password" {
+  name = "read-db-password"
+  role = aws_iam_role.ec2.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = "ssm:GetParameter"
+      Resource = aws_ssm_parameter.db_password.arn
+    }]
+  })
+}
+
 resource "aws_iam_instance_profile" "ec2" {
   name = "${var.project}-ec2"
   role = aws_iam_role.ec2.name
@@ -88,7 +104,11 @@ resource "aws_instance" "app" {
   iam_instance_profile        = aws_iam_instance_profile.ec2.name
   associate_public_ip_address = true
   user_data = templatefile("${path.module}/user_data.sh.tftpl", {
-    frontend_origin = "http://${aws_eip.app.public_ip}"
+    region                = var.region
+    db_host               = aws_db_instance.db.address
+    db_name               = aws_db_instance.db.db_name
+    db_username           = aws_db_instance.db.username
+    db_password_parameter = aws_ssm_parameter.db_password.name
   })
 
   # CPUを使いすぎたときに追加料金が出る「unlimited」モードにしない
@@ -118,7 +138,7 @@ resource "aws_instance" "app" {
   }
 }
 
-# 固定のIPアドレス。フロントエンドのURL（CORSで許可するオリジン）が、サーバーを止めても変わらないようにする
+# 固定のIPアドレス。フロントエンドのURLが、サーバーを止めて起動し直しても変わらないようにする
 # EC2に付けている間の料金は、自動で割り当てられるIPと同じ。EC2から外したまま残すと料金だけかかるので注意
 resource "aws_eip" "app" {
   domain = "vpc"
