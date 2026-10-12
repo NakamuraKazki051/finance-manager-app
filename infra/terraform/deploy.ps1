@@ -9,6 +9,9 @@ $ErrorActionPreference = 'Stop'
 $tf = "$env:USERPROFILE\tools\terraform\terraform.exe"
 $region = 'ap-northeast-1'
 Set-Location $PSScriptRoot
+# 失敗したときに表示するサーバーのログを文字化けさせない
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+$env:AWS_CLI_OUTPUT_ENCODING = 'utf-8'
 $repo = (Resolve-Path "$PSScriptRoot\..\..").Path
 
 aws sts get-caller-identity --output text *> $null
@@ -53,7 +56,18 @@ $commands = @(
     'echo backend-not-ready; docker compose logs --tail 80 app; exit 1'
 )
 $params = Join-Path ([IO.Path]::GetTempPath()) 'task-manager-deploy.json'
-@{ commands = $commands } | ConvertTo-Json | Set-Content $params -Encoding utf8NoBOM
+# aws CLI は file:// を Windows の既定の文字コード（Shift-JIS）で読むので、日本語が入っても読めるように \uXXXX にしておく
+@{ commands = $commands } | ConvertTo-Json -EscapeHandling EscapeNonAscii | Set-Content $params -Encoding utf8NoBOM
+
+# 作った直後は、EC2 が Session Manager に登録されるまで数分かかる（IAM の反映待ち）。登録されるまで待つ
+for ($i = 0; $i -lt 60; $i++) {
+    $ping = aws ssm describe-instance-information --region $region --filters "Key=InstanceIds,Values=$instance" `
+        --query 'InstanceInformationList[0].PingStatus' --output text 2>$null
+    if ($ping -eq 'Online') { break }
+    if ($i -eq 0) { Write-Host 'サーバーが Session Manager に登録されるのを待っています（数分）' }
+    Start-Sleep 10
+}
+if ($ping -ne 'Online') { throw '10分待っても、サーバーが Session Manager に登録されません。EC2コンソールで状態を確認してください。' }
 
 Write-Host 'サーバーに反映しています（バックエンドの起動に1〜3分）'
 $commandId = aws ssm send-command --region $region --instance-ids $instance --document-name AWS-RunShellScript `
