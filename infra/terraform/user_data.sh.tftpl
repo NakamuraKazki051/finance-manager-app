@@ -119,3 +119,7 @@ retry docker compose up -d web
 
 # アプリより先にイメージを取っておく（デプロイ時にすぐ起動できるように）
 retry docker pull eclipse-temurin:25-jre
+
+# 起動直後に AWS への接続が一度失敗すると、SSM エージェントは休止して長いあいだ再接続しない。
+# そうなると deploy.ps1 が送れないので、準備の最後にエージェントを起動し直す
+systemctl restart amazon-ssm-agent

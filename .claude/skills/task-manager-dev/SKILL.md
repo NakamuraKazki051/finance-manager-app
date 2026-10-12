@@ -17,6 +17,7 @@ description: task-manager-app（素のHTML/JS フロント + Spring Boot/Postgre
 | `README.md` | 使い方（番号付き手順）と「## 機能」（カテゴリ別の機能一覧） |
 | `backend/README.md` | APIエンドポイント表 |
 | `infra/terraform/` | AWS（EC2 + RDS + nginx）の Terraform。`up.ps1` / `down.ps1` で使うときだけ作る。手順と品質チェックのコマンドは `infra/terraform/README.md` |
+| `perf/e2e-perf.js` | E2E パフォーマンステスト（k6）。`infra/terraform/perf.ps1` から流し、終わるとテスト用ユーザー（`e2e-perf-*@example.com`）を DB から消す |
 
 ## 実装の規約
 
