@@ -73,7 +73,14 @@ resource "aws_db_instance" "db" {
   auto_minor_version_upgrade = true
   apply_immediately          = true
 
-  # terraform destroy でDBごと消える。消す前に、アプリの「エクスポート」でデータを書き出しておくこと
+  # 使うときだけ作る運用のため、消す前のスナップショットは down.ps1 が取り、up.ps1 がそこから復元する
+  # （terraform destroy を直接実行すると、スナップショットを取らずにDBごと消える）
+  snapshot_identifier = var.db_snapshot_identifier
   skip_final_snapshot = true
   deletion_protection = false
+
+  lifecycle {
+    # 作ったあとに復元元の指定が変わっても、DBを作り直さない
+    ignore_changes = [snapshot_identifier]
+  }
 }
