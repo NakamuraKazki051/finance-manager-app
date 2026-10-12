@@ -16,6 +16,7 @@ description: task-manager-app（素のHTML/JS フロント + Spring Boot/Postgre
 | `backend/src/test/java/...` | MockMvc の統合テスト（H2インメモリDB、Docker不要）。`TestAuth.registerAndLogin` でログイン済みセッションを作る |
 | `README.md` | 使い方（番号付き手順）と「## 機能」（カテゴリ別の機能一覧） |
 | `backend/README.md` | APIエンドポイント表 |
+| `infra/terraform/` | AWS（EC2 + RDS + nginx）の Terraform。`up.ps1` / `down.ps1` で使うときだけ作る。手順と品質チェックのコマンドは `infra/terraform/README.md` |
 
 ## 実装の規約
 
@@ -85,6 +86,20 @@ description: task-manager-app（素のHTML/JS フロント + Spring Boot/Postgre
 - 入力検証: フロントの制限とバックエンドの `@Size` / `@NotBlank` が一致しているか。500 になる入力がないか。
 - フロント: XSS（`innerHTML`）、日付のタイムゾーン、状態の取り残し（ボード切り替え時やログアウト時）。
 - ドキュメント: README の機能一覧・手順、API表が実装と一致しているか。
+
+### Terraform（`infra/terraform/`）の品質チェック
+
+コマンドは `infra/terraform/README.md` の「品質チェック」にまとめてある。AWSに何かを作る・消す操作（`apply` / `up.ps1` / `down.ps1`）は料金がかかるので、ユーザーが頼んだときだけ行う。`plan` や読み取りだけの `aws ... describe` は確認なしで行ってよい。
+
+- 書式・構文: `terraform fmt -check -recursive` と `terraform validate` が通るか。`.terraform.lock.hcl` がコミットされているか。
+- ずれ（ドリフト）: 環境があるときに `terraform plan` が `No changes` になるか。コンソールで手で変えたものがないか。
+- 公開範囲: EC2のセキュリティグループで開いているのは 80 番だけか（8080 は `expose_backend_port` のときだけ、22 は開けない）。RDS は `publicly_accessible = false` で、5432 番はアプリのEC2のセキュリティグループからだけか。
+- 秘密情報: DBのパスワードが Git・`terraform.tfstate`・`user_data`・起動ログ（`/var/log/cloud-init-output.log`）のどこにも出ていないか。`*.tfstate` と `*.tfvars` が `.gitignore` されているか。
+- 権限: EC2のIAMロールは Session Manager、DBのパスワードのパラメータ1つ、デプロイ用S3バケットの読み取りだけか（`*` のリソース指定がないか）。S3バケットは公開をブロックしているか。
+- 暗号化・設定: EBS・RDS・スナップショットが暗号化されているか。IMDSv2 必須か。CPUクレジットが `standard` か。
+- 費用: 無料枠のサイズ（`t3.micro` / `db.t4g.micro`、ストレージ合計30GB以内）か。NATゲートウェイ・ロードバランサー・Secrets Manager・Performance Insights など有料の部品を使っていないか。`down.ps1` のあとに、EC2・RDS・Elastic IP が残っていないか。スナップショットが増えすぎていないか（2つまで）。
+- データ: `down.ps1` がスナップショットを取ってから消し、`up.ps1` がそこから復元するか。直接 `terraform destroy` を案内していないか。
+- テンプレート: `user_data.sh.tftpl` で、波かっこ付きの変数（compose 用）が `$${...}` とエスケープされているか。`terraform console` で `templatefile(...)` を展開して確かめる。`*.sh` / `*.tftpl` が LF 改行か（`.gitattributes`）。
 
 ## 不具合を見つけたとき
 

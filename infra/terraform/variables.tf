@@ -45,6 +45,12 @@ variable "db_instance_class" {
   default     = "db.t4g.micro"
 }
 
+variable "db_snapshot_identifier" {
+  description = "RDSをこのスナップショットから復元して作る（up.ps1 が最新のものを自動で指定する）。null なら空のDBを作る"
+  type        = string
+  default     = null
+}
+
 variable "db_password_version" {
   description = "DBのパスワードを作り直したいときに1つ増やす（apply すると新しいパスワードに変わる）"
   type        = number
