@@ -1,22 +1,29 @@
 services:
   db:
-    image: postgres:16-alpine
-    container_name: task-manager-db
-    restart: unless-stopped
+    image: mysql:8.4
+    container_name: finance-manager-mysql
+    # メモリの少ないPCなので、Docker Desktop の起動と同時に勝手に立ち上がらないようにする(使うときに docker compose up -d)
+    restart: "no"
     environment:
-      POSTGRES_DB: taskmanager
-      POSTGRES_USER: taskmanager
-      POSTGRES_PASSWORD: taskmanager
+      MYSQL_ROOT_PASSWORD: financemanager
+      MYSQL_DATABASE: financemanager_development
+      TZ: Asia/Tokyo
+    # 低メモリ向け: 統計情報(performance_schema)を切り、バッファを小さくする
+    command:
+      - --performance-schema=OFF
+      - --innodb-buffer-pool-size=64M
+      - --innodb-log-buffer-size=8M
+      - --max-connections=30
     ports:
-      - "5432:5432"
+      - "3306:3306"
     volumes:
-      - db-data:/var/lib/postgresql/data
-    mem_limit: 256m
+      - mysql-data:/var/lib/mysql
+    mem_limit: 384m
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U taskmanager -d taskmanager"]
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -pfinancemanager --silent"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
 
 volumes:
-  db-data:
+  mysql-data:

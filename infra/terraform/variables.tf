@@ -7,7 +7,7 @@ variable "region" {
 variable "project" {
   description = "リソース名とタグに付ける名前"
   type        = string
-  default     = "task-manager-app"
+  default     = "finance-manager-app"
 }
 
 variable "instance_type" {

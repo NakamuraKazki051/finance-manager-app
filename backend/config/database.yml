@@ -1,0 +1,26 @@
+# MySQL 8。ローカルはリポジトリ直下の docker-compose.yml の MySQL コンテナ(localhost:3306)を使う。
+# 本番(EC2)は RDS for MySQL で、接続先とパスワードは環境変数で渡す(user_data.sh.tftpl が .env に書く)
+default: &default
+  adapter: mysql2
+  encoding: utf8mb4
+  collation: utf8mb4_0900_ai_ci
+  max_connections: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+  host: <%= ENV.fetch("DB_HOST") { "127.0.0.1" } %>
+  port: <%= ENV.fetch("DB_PORT") { 3306 } %>
+  username: <%= ENV.fetch("DB_USERNAME") { "root" } %>
+  password: <%= ENV.fetch("DB_PASSWORD") { "financemanager" } %>
+
+development:
+  <<: *default
+  database: financemanager_development
+
+# テストを流すたびに作り直される。開発用や本番のDB名にしないこと
+test:
+  <<: *default
+  database: financemanager_test
+
+production:
+  <<: *default
+  database: <%= ENV.fetch("DB_NAME") { "financemanager" } %>
+  # RDS との通信を暗号化する
+  ssl_mode: required

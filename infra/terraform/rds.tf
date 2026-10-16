@@ -1,5 +1,5 @@
-# RDS（PostgreSQL）。無料枠の範囲：db.t4g.micro / シングルAZ / ストレージ20GB
-# インターネットからは接続できず、アプリのEC2からだけ 5432番で接続できる
+# RDS（MySQL 8.4）。無料枠の範囲：db.t4g.micro / シングルAZ / ストレージ20GB
+# インターネットからは接続できず、アプリのEC2からだけ 3306番で接続できる
 
 data "aws_subnets" "default" {
   filter {
@@ -15,16 +15,16 @@ resource "aws_db_subnet_group" "db" {
 
 resource "aws_security_group" "db" {
   name        = "${var.project}-db"
-  description = "PostgreSQL from the app EC2 only"
+  description = "MySQL from the app EC2 only"
   vpc_id      = data.aws_vpc.default.id
 }
 
 resource "aws_vpc_security_group_ingress_rule" "db_from_app" {
   security_group_id            = aws_security_group.db.id
-  description                  = "PostgreSQL from app EC2"
+  description                  = "MySQL from app EC2"
   referenced_security_group_id = aws_security_group.app.id
-  from_port                    = 5432
-  to_port                      = 5432
+  from_port                    = 3306
+  to_port                      = 3306
   ip_protocol                  = "tcp"
 }
 
@@ -45,16 +45,16 @@ resource "aws_ssm_parameter" "db_password" {
 
 resource "aws_db_instance" "db" {
   identifier     = "${var.project}-db"
-  engine         = "postgres"
-  engine_version = "16"
+  engine         = "mysql"
+  engine_version = "8.4"
   instance_class = var.db_instance_class
 
   allocated_storage = 20
   storage_type      = "gp2"
   storage_encrypted = true
 
-  db_name             = "taskmanager"
-  username            = "taskmanager"
+  db_name             = "financemanager"
+  username            = "financemanager"
   password_wo         = ephemeral.random_password.db.result
   password_wo_version = var.db_password_version
 

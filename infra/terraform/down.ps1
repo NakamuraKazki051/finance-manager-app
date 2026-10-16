@@ -8,7 +8,7 @@ param([switch]$Force)
 $ErrorActionPreference = 'Stop'
 $tf = "$env:USERPROFILE\tools\terraform\terraform.exe"
 $region = 'ap-northeast-1'
-$db = 'task-manager-app-db'
+$db = 'finance-manager-app-db'
 $keepSnapshots = 2
 Set-Location $PSScriptRoot
 

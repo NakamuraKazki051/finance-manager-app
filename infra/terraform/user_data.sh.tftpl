@@ -1,9 +1,9 @@
 #!/bin/bash
 # EC2の初回起動時に1回だけ実行されるセットアップ（Terraform の templatefile で値を埋め込む）。
 # Docker・nginx・アプリ用の docker-compose.yml までを用意する。
-# アプリ本体（app.jar とフロントエンドのファイル）は後でデプロイする。
-#   80番   → nginx: /opt/task-manager/frontend を配信し、/api/ をバックエンドへ中継
-#   8080番 → Spring Boot（app.jar）。DBは RDS を使う
+# アプリ本体（Rails のイメージと、Next.js で書き出したフロントエンドのファイル）は後で deploy.ps1 が送る。
+#   80番   → nginx: /opt/finance-manager/frontend を配信し、/api/ をバックエンドへ中継
+#   8080番 → Rails API（コンテナの中は3000番）。DBは RDS for MySQL を使う
 # ※ 波かっこ付きの変数（docker compose 用）は、ドル記号を2つ重ねて書く（Terraform を通ると1つになる）
 set -euxo pipefail
 
@@ -16,7 +16,7 @@ retry() {
   return 1
 }
 
-# メモリ1GBでも Spring Boot が落ちないよう、2GBのスワップを作る
+# メモリ1GBでもイメージの読み込みや Rails の起動で落ちないよう、2GBのスワップを作る
 if [ ! -f /swapfile ]; then
   dd if=/dev/zero of=/swapfile bs=1M count=2048
   chmod 600 /swapfile
@@ -34,7 +34,7 @@ retry curl -fsSL "https://github.com/docker/compose/releases/latest/download/doc
   -o /usr/local/lib/docker/cli-plugins/docker-compose
 chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
-APP_DIR=/opt/task-manager
+APP_DIR=/opt/finance-manager
 mkdir -p "$APP_DIR/frontend" "$APP_DIR/nginx"
 cd "$APP_DIR"
 
@@ -44,8 +44,10 @@ set +x
 DB_PASSWORD=$(retry aws ssm get-parameter --region "${region}" --name "${db_password_parameter}" \
   --with-decryption --query Parameter.Value --output text)
 umask 077
+# SECRET_KEY_BASE はログインのCookieの暗号化に使う。サーバーを作るたびに新しく作る（作り直すと全員ログアウトになる）
 cat > .env <<EOF
 DB_PASSWORD=$DB_PASSWORD
+SECRET_KEY_BASE=$(openssl rand -hex 64)
 EOF
 umask 022
 unset DB_PASSWORD
@@ -56,7 +58,7 @@ if [ ! -f frontend/index.html ]; then
   cat > frontend/index.html <<'EOF'
 <!doctype html>
 <html lang="ja"><meta charset="utf-8"><title>準備中</title>
-<p>タスク管理アプリは準備中です。</p>
+<p>収支管理アプリは準備中です。</p>
 </html>
 EOF
 fi
@@ -66,17 +68,23 @@ server {
   listen 80;
   root /usr/share/nginx/html;
   index index.html;
-  # ボードのインポート（JSON）を送れるようにする
+  # 家計簿のインポート（JSON）を送れるようにする
   client_max_body_size 10m;
 
   location / {
-    try_files $uri $uri/ /index.html;
+    try_files $uri $uri.html $uri/ /index.html;
+  }
+
+  # Next.js の書き出したファイルは名前にハッシュが付くので、長くキャッシュしてよい
+  location /_next/static/ {
+    expires 1y;
+    add_header Cache-Control "public, immutable";
   }
 
   # API はバックエンドへ中継する。宛先を変数にして、バックエンドが止まっていても nginx は起動できるようにする
   location /api/ {
     resolver 127.0.0.11 valid=10s;
-    set $backend http://app:8080;
+    set $backend http://app:3000;
     proxy_pass $backend;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -88,7 +96,7 @@ EOF
 
 cat > docker-compose.yml <<'EOF'
 services:
-  # フロントエンド（index.html / style.css / app.js）を frontend/ に置くと、80番で配信される
+  # フロントエンド（Next.js の書き出し結果 out/ の中身）を frontend/ に置くと、80番で配信される
   web:
     image: nginx:alpine
     restart: unless-stopped
@@ -99,26 +107,26 @@ services:
       - "80:80"
     mem_limit: 64m
 
-  # app.jar を /opt/task-manager に置いてから `docker compose up -d app` で起動する
+  # Rails API。deploy.ps1 がイメージ（finance-manager-api:latest）を docker load してから起動する。
+  # 起動のたびに未適用のマイグレーションを流す（backend/Dockerfile の CMD）
   app:
-    image: eclipse-temurin:25-jre
+    image: finance-manager-api:latest
     restart: unless-stopped
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://${db_host}:5432/${db_name}
-      SPRING_DATASOURCE_USERNAME: ${db_username}
-      SPRING_DATASOURCE_PASSWORD: $${DB_PASSWORD}
-    volumes:
-      - ./app.jar:/app/app.jar:ro
-    command: ["java", "-Xmx384m", "-Xss512k", "-XX:MaxMetaspaceSize=128m", "-jar", "/app/app.jar"]
+      DB_HOST: ${db_host}
+      DB_NAME: ${db_name}
+      DB_USERNAME: ${db_username}
+      DB_PASSWORD: $${DB_PASSWORD}
+      SECRET_KEY_BASE: $${SECRET_KEY_BASE}
+      # Puma を1プロセス・3スレッドにしてメモリを抑える
+      WEB_CONCURRENCY: "0"
+      RAILS_MAX_THREADS: "3"
     ports:
-      - "8080:8080"
-    mem_limit: 640m
+      - "8080:3000"
+    mem_limit: 512m
 EOF
 
 retry docker compose up -d web
-
-# アプリより先にイメージを取っておく（デプロイ時にすぐ起動できるように）
-retry docker pull eclipse-temurin:25-jre
 
 # 起動直後に AWS への接続が一度失敗すると、SSM エージェントは休止して長いあいだ再接続しない。
 # そうなると deploy.ps1 が送れないので、準備の最後にエージェントを起動し直す
