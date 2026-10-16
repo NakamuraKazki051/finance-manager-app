@@ -17,13 +17,15 @@ type Props = {
   transaction: Transaction | null;
   categories: Category[];
   defaultDate: string;
+  defaultCategoryId?: string | null;
   onClose: () => void;
   onSave: (input: TransactionInput) => void;
   onDelete: () => void;
 };
 
-export function TransactionModal({ transaction, categories, defaultDate, onClose, onSave, onDelete }: Props) {
-  const fallbackCategory = categories.find((c) => c.type === "EXPENSE") ?? categories[0];
+export function TransactionModal({ transaction, categories, defaultDate, defaultCategoryId, onClose, onSave, onDelete }: Props) {
+  const fallbackCategory =
+    categories.find((c) => c.id === defaultCategoryId) ?? categories.find((c) => c.type === "EXPENSE") ?? categories[0];
   const [amount, setAmount] = useState(transaction ? String(transaction.amount) : "");
   const [date, setDate] = useState(transaction ? transaction.date : defaultDate);
   const [categoryId, setCategoryId] = useState(transaction?.categoryId ?? fallbackCategory?.id ?? "");

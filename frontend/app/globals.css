@@ -485,7 +485,7 @@ kbd {
 .column-name {
   flex: 1;
   min-width: 0;
-  cursor: text;
+  cursor: grab;
   padding: 2px 4px;
   margin: -2px -4px;
   border-radius: 4px;
@@ -586,6 +586,22 @@ kbd {
   border-radius: 6px;
 }
 .add-column-btn:hover { background: rgba(255, 255, 255, 0.16); }
+
+/* 列の下の「+ 支出を追加」。押すとその列のカテゴリを選んだ状態で取引の入力画面が開く */
+.add-card-btn {
+  margin-top: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  text-align: left;
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.9rem;
+}
+.add-card-btn:hover { background: var(--hover-overlay); color: var(--text); }
 
 .add-column-form {
   display: flex;

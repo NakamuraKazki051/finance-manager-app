@@ -83,6 +83,12 @@ export default function FinanceApp() {
   const [summary, setSummary] = useState<Summary | null>(null);
 
   const [editing, setEditing] = useState<Transaction | "new" | null>(null);
+  // 列の「+ 取引を追加」から開いたときは、そのカテゴリを選んだ状態で開く
+  const [newCategoryId, setNewCategoryId] = useState<string | null>(null);
+  const openNewTransaction = (categoryId: string | null = null) => {
+    setNewCategoryId(categoryId);
+    setEditing("new");
+  };
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [menuOpen, setMenuOpen] = useState(false);
@@ -547,7 +553,7 @@ export default function FinanceApp() {
       if (anyModalOpen || !bookId || e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key === "n" || e.key === "N") {
         e.preventDefault();
-        setEditing("new");
+        openNewTransaction();
       } else if (e.key === "/") {
         e.preventDefault();
         searchRef.current?.focus();
@@ -653,7 +659,7 @@ export default function FinanceApp() {
               </div>
             </details>
             <input ref={importRef} type="file" accept="application/json,.json" className="hidden" onChange={handleImportFile} />
-            <button type="button" className="btn-primary" title="取引を追加 (N)" onClick={() => setEditing("new")}>+ 取引を追加</button>
+            <button type="button" className="btn-primary" title="取引を追加 (N)" onClick={() => openNewTransaction()}>+ 取引を追加</button>
           </div>
         )}
       </header>
@@ -726,6 +732,7 @@ export default function FinanceApp() {
           selectionMode={selectionMode}
           selectedIds={selectedIds}
           onOpenTransaction={setEditing}
+          onAddTransaction={openNewTransaction}
           onToggleSelected={toggleSelected}
           onMoveTransaction={moveTransaction}
           onRenameCategory={renameCategory}
@@ -742,15 +749,16 @@ export default function FinanceApp() {
 
       {/* スマホでは画面下に固定し、片手ですぐ記録できるようにする */}
       {loggedIn && (
-        <button type="button" className="fab" aria-label="取引を追加" onClick={() => setEditing("new")}>＋</button>
+        <button type="button" className="fab" aria-label="取引を追加" onClick={() => openNewTransaction()}>＋</button>
       )}
 
       {editing && (
         <TransactionModal
-          key={editing === "new" ? "new" : editing.id}
+          key={editing === "new" ? `new-${newCategoryId ?? ""}` : editing.id}
           transaction={editing === "new" ? null : editing}
           categories={categories}
           defaultDate={defaultDate}
+          defaultCategoryId={editing === "new" ? newCategoryId : null}
           onClose={() => setEditing(null)}
           onSave={saveTransaction}
           onDelete={deleteTransaction}

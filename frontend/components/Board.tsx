@@ -16,6 +16,7 @@ type BoardProps = {
   selectionMode: boolean;
   selectedIds: Set<string>;
   onOpenTransaction: (txn: Transaction) => void;
+  onAddTransaction: (categoryId: string) => void;
   onToggleSelected: (id: string) => void;
   onMoveTransaction: (txnId: string, categoryId: string) => void;
   onRenameCategory: (category: Category, name: string) => void;
@@ -108,9 +109,8 @@ function CategoryColumn(props: ColumnProps) {
         ) : (
           <span
             className="column-name"
-            title="クリックしてカテゴリ名を編集・ドラッグで並び替え"
+            title="ドラッグで並び替え"
             draggable
-            onClick={() => setEditing(true)}
             onDragStart={(e) => {
               setDragging(true);
               e.dataTransfer.setData(CATEGORY_DRAG_TYPE, category.id);
@@ -122,6 +122,10 @@ function CategoryColumn(props: ColumnProps) {
           </span>
         )}
         <span className="count">{columnTransactions.length}</span>
+        {!editing && (
+          <button type="button" className="column-move" aria-label="カテゴリ名を変更" title="カテゴリ名を変更"
+            onClick={() => setEditing(true)}>✎</button>
+        )}
         <button type="button" className="column-move" aria-label="カテゴリを左に移動" title="カテゴリを左に移動"
           disabled={index === 0} onClick={() => props.onMoveCategory(category.id, index - 1)}>◀</button>
         <button type="button" className="column-move" aria-label="カテゴリを右に移動" title="カテゴリを右に移動"
@@ -147,6 +151,12 @@ function CategoryColumn(props: ColumnProps) {
           <TransactionCard key={txn.id} {...props} txn={txn} />
         ))}
       </div>
+      {/* 金額はカードとして記録する。見出しに数字を打ち込んでしまわないよう、列ごとに入口を置く */}
+      {!props.selectionMode && (
+        <button type="button" className="add-card-btn" onClick={() => props.onAddTransaction(category.id)}>
+          + {TYPE_LABEL[category.type]}を追加
+        </button>
+      )}
     </section>
   );
 }
