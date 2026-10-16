@@ -17,10 +17,15 @@
   --danger: #eb5a46;
   --danger-hover: #cf4b3a;
   --check-ring: #cbd2da;
-  --check-bg: #61bd4f;
   --hover-overlay: rgba(9, 30, 66, 0.06);
   --add-column-bg: rgba(255, 255, 255, 0.14);
   --secondary-hover: #d0d4db;
+
+  /* 収入は緑、支出は赤系で、金額の向きがひと目でわかるようにする */
+  --income: #1f845a;
+  --income-bg: #dcfff1;
+  --expense: #c9372c;
+  --expense-bg: #ffeceb;
 
   --lbl-sky: #00c2e0;      --lbl-sky-tx: #08303c;
   --lbl-lime: #51e898;     --lbl-lime-tx: #0b3b25;
@@ -54,6 +59,11 @@
     --add-column-bg: rgba(255, 255, 255, 0.06);
     --secondary-hover: #454c54;
 
+    --income: #4bce97;
+    --income-bg: #164b35;
+    --expense: #f87168;
+    --expense-bg: #5d1f1a;
+
     --lbl-sky-tx: #05161c;
     --lbl-lime-tx: #06210f;
     --lbl-green-tx: #0d2013;
@@ -86,6 +96,11 @@
   --hover-overlay: rgba(255, 255, 255, 0.08);
   --add-column-bg: rgba(255, 255, 255, 0.06);
   --secondary-hover: #454c54;
+
+  --income: #4bce97;
+  --income-bg: #164b35;
+  --expense: #f87168;
+  --expense-bg: #5d1f1a;
 
   --lbl-sky-tx: #05161c;
   --lbl-lime-tx: #06210f;
@@ -136,19 +151,19 @@ body {
   flex-wrap: wrap;
 }
 
-.board-switcher {
+.book-switcher {
   display: flex;
   align-items: center;
   gap: 4px;
 }
 
-.board-switcher select {
+.book-switcher select {
   background: rgba(255, 255, 255, 0.16);
   border-color: rgba(255, 255, 255, 0.35);
   color: var(--text-oncolor);
   max-width: 160px;
 }
-.board-switcher select option { color: #172b4d; }
+.book-switcher select option { color: #172b4d; }
 
 .icon-btn {
   background: rgba(255, 255, 255, 0.16);
@@ -204,6 +219,20 @@ body {
 }
 .search-input::placeholder { color: rgba(255, 255, 255, 0.75); }
 
+.amount-range {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-oncolor);
+}
+.amount-range input {
+  width: 96px;
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: var(--text-oncolor);
+}
+.amount-range input::placeholder { color: rgba(255, 255, 255, 0.75); }
+
 .btn-secondary.active {
   background: var(--accent);
   color: white;
@@ -247,6 +276,7 @@ button {
   color: var(--text);
 }
 .btn-secondary:hover:not(:disabled):not(.active) { background: var(--secondary-hover); }
+.btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* キーボード操作時に今どこにいるかが見えるようにする(マウスクリックでは出さない) */
 button:focus-visible,
@@ -254,11 +284,12 @@ summary:focus-visible,
 select:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
-.task-card:focus-visible {
+.txn-card:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 .app-header :focus-visible,
+.month-bar :focus-visible,
 .column.add-column :focus-visible { outline-color: #ffffff; }
 
 kbd {
@@ -316,6 +347,72 @@ kbd {
   .menu-panel { position: static; margin-top: 6px; }
 }
 
+/* --- 月の切り替えと月の収支 --- */
+
+.month-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  padding: 12px 24px;
+  color: var(--text-oncolor);
+}
+
+.month-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.month-label {
+  margin: 0;
+  min-width: 7.5em;
+  text-align: center;
+  font-size: 1.25rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.month-today { padding: 5px 12px; font-size: 0.82rem; }
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+}
+
+.summary-item {
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 6px 14px;
+  min-width: 128px;
+  box-shadow: var(--card-shadow);
+}
+.summary-item dt {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.summary-item dd {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.summary-item.income dd { color: var(--income); }
+.summary-item.expense dd { color: var(--expense); }
+.summary-item.balance dd.negative { color: var(--expense); }
+
+@media (max-width: 720px) {
+  .month-bar { padding: 10px 12px; }
+  .summary { width: 100%; }
+  .summary-item { flex: 1 1 0; min-width: 0; padding: 6px 10px; }
+  .summary-item dd { font-size: 1rem; }
+}
+
 .filter-bar {
   display: flex;
   align-items: center;
@@ -345,12 +442,13 @@ kbd {
   display: flex;
   align-items: flex-start;
   gap: 14px;
-  padding: 18px 20px 32px;
+  padding: 8px 20px 32px;
   overflow-x: auto;
 }
 
 @media (max-width: 720px) {
-  .board { flex-direction: column; overflow-x: visible; }
+  /* 下に固定した「＋」ボタンが最後のカードに重ならないよう、下に余白を取る */
+  .board { flex-direction: column; overflow-x: visible; padding-bottom: 96px; }
   .column { width: 100%; }
 }
 
@@ -364,6 +462,10 @@ kbd {
   display: flex;
   flex-direction: column;
 }
+
+/* 列の上端の色で、収入のカテゴリか支出のカテゴリかを見分けられるようにする */
+.column.income { border-top: 4px solid var(--income); }
+.column.expense { border-top: 4px solid var(--expense); }
 
 .column.drag-over {
   outline: 2px dashed var(--accent);
@@ -401,6 +503,32 @@ kbd {
   padding: 2px 4px;
 }
 
+.column-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: -4px 6px 10px;
+}
+
+.column-total-amount {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--list-header);
+  font-variant-numeric: tabular-nums;
+}
+
+.column-type {
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 999px;
+}
+.column-type.income { background: var(--income-bg); color: var(--income); }
+.column-type.expense { background: var(--expense-bg); color: var(--expense); }
+.column-type:hover { filter: brightness(0.95); }
+
 .column-delete {
   background: transparent;
   border: none;
@@ -416,29 +544,6 @@ kbd {
 .column:hover .column-delete,
 .column:focus-within .column-delete { opacity: 1; }
 .column-delete:hover { background: var(--border); color: var(--danger); }
-
-.column-done-toggle {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-size: 0.8rem;
-  font-weight: 800;
-  line-height: 1;
-  padding: 3px 6px;
-  border-radius: 4px;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
-}
-.column:hover .column-done-toggle,
-.column:focus-within .column-done-toggle { opacity: 1; }
-.column-done-toggle:hover { background: var(--border); color: var(--check-bg); }
-.column-done-toggle.active {
-  opacity: 1;
-  background: var(--check-bg);
-  color: white;
-}
-.column-done-toggle.active:hover { background: var(--check-bg); color: white; }
 
 .column-move {
   background: transparent;
@@ -463,20 +568,9 @@ kbd {
 /* ホバーが効かないタッチ端末では、常時ボタンを表示して操作できるようにする */
 @media (hover: none) {
   .column-delete,
-  .column-done-toggle,
   .column-move { opacity: 1; }
   .column-move:disabled { opacity: 0.35; }
 }
-
-.add-column-done {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-oncolor);
-  font-size: 0.82rem;
-  cursor: pointer;
-}
-.add-column-done input { margin: 0; }
 
 .column.add-column {
   background: var(--add-column-bg);
@@ -498,7 +592,8 @@ kbd {
   flex-direction: column;
   gap: 6px;
 }
-.add-column-form input { width: 100%; }
+.add-column-form input,
+.add-column-form select { width: 100%; }
 
 .add-column-actions {
   display: flex;
@@ -529,7 +624,7 @@ kbd {
   flex: 1;
 }
 
-.task-card {
+.txn-card {
   background: var(--surface);
   border-radius: 8px;
   padding: 10px 12px 11px;
@@ -538,102 +633,62 @@ kbd {
 }
 
 @media (hover: hover) {
-  .task-card { transition: box-shadow 120ms ease, transform 120ms ease; }
-  .task-card:hover { box-shadow: var(--card-shadow-hover); transform: translateY(-1px); }
+  .txn-card { transition: box-shadow 120ms ease, transform 120ms ease; }
+  .txn-card:hover { box-shadow: var(--card-shadow-hover); transform: translateY(-1px); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .task-card { transition: none; }
-  .task-card:hover { transform: none; }
+  .txn-card { transition: none; }
+  .txn-card:hover { transform: none; }
 }
 
-.task-card:active { cursor: grabbing; }
-.task-card.dragging { opacity: 0.4; }
+.txn-card:active { cursor: grabbing; }
+.txn-card.dragging { opacity: 0.4; }
 
-.task-card-head {
+.txn-card-head {
   display: flex;
-  align-items: flex-start;
+  align-items: baseline;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
-.task-complete-check {
+.txn-select-check {
   flex: none;
-  margin: 3px 0 0;
+  margin: 0;
+  align-self: center;
   cursor: pointer;
 }
 
-.task-card-title {
-  font-weight: 700;
-  word-break: break-word;
+.txn-amount {
+  flex: 1;
+  font-size: 1.05rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.txn-amount.income { color: var(--income); }
+.txn-amount.expense { color: var(--expense); }
+
+.txn-date {
+  flex: none;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.txn-memo {
+  font-size: 0.85rem;
   color: var(--text);
-}
-
-.task-card.completed .task-card-title {
-  text-decoration: line-through;
-  color: var(--text-muted);
-}
-
-.task-card.completed { opacity: 0.7; }
-
-#taskForm label.task-complete-toggle {
-  flex-direction: row;
-  align-items: center;
-  gap: 6px;
-}
-.task-complete-toggle input { margin: 0; }
-
-.task-card-desc {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-  white-space: pre-wrap;
   word-break: break-word;
 }
+/* メモが空のときはカテゴリ名を薄く出す */
+.txn-memo.empty { color: var(--text-muted); }
 
-.task-meta {
+.txn-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
   align-items: center;
-}
-
-.badge {
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  padding: 3px 9px;
-  border-radius: 4px;
-  color: white;
-  white-space: nowrap;
-}
-
-.badge.high { background: var(--lbl-red); color: var(--lbl-red-tx); }
-.badge.mid { background: var(--lbl-yellow); color: var(--lbl-yellow-tx); }
-.badge.low { background: var(--lbl-green); color: var(--lbl-green-tx); }
-
-.badge.due {
-  background: var(--border);
-  color: var(--text);
-}
-
-.badge.due.overdue {
-  background: var(--lbl-red);
-  color: var(--lbl-red-tx);
-}
-
-.badge.due.due-soon {
-  background: var(--lbl-orange);
-  color: var(--lbl-orange-tx);
-}
-
-.badge.checklist {
-  background: var(--border);
-  color: var(--text);
-}
-
-.badge.checklist.complete {
-  background: var(--check-bg);
-  color: white;
+  margin-top: 8px;
 }
 
 .tag {
@@ -672,6 +727,31 @@ kbd {
   padding: 16px 8px;
 }
 
+/* スマホ幅のときだけ、画面右下に「＋」ボタンを固定する */
+.fab {
+  display: none;
+}
+@media (max-width: 720px) {
+  .fab {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    z-index: 8;
+    width: 60px;
+    height: 60px;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--accent);
+    color: white;
+    font-size: 1.8rem;
+    box-shadow: 0 6px 16px rgba(9, 30, 66, 0.4);
+  }
+  .fab:hover { background: var(--accent-hover); }
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -703,7 +783,7 @@ kbd {
   color: var(--text);
 }
 
-#taskForm label {
+#txnForm label {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -712,16 +792,23 @@ kbd {
   margin-bottom: 12px;
 }
 
-#taskForm label > input,
-#taskForm label > textarea,
-#taskForm label > select {
+#txnForm label > input,
+#txnForm label > textarea,
+#txnForm label > select {
   color: var(--text);
   font-size: 0.95rem;
 }
 
-#taskForm label > input:focus,
-#taskForm label > textarea:focus,
-#taskForm label > select:focus {
+/* 金額は一番よく見る項目なので大きく表示する */
+#txnForm #txnAmount {
+  font-size: 1.3rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+#txnForm label > input:focus,
+#txnForm label > textarea:focus,
+#txnForm label > select:focus {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
@@ -791,85 +878,6 @@ kbd {
   gap: 12px;
 }
 
-.checklist-section {
-  margin-bottom: 14px;
-}
-
-.checklist-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  margin-bottom: 6px;
-}
-
-.checklist-progress {
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-.checklist-items {
-  list-style: none;
-  margin: 0 0 8px;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.checklist-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 2px;
-}
-
-.checklist-item .checklist-check {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--check-bg);
-  padding: 0;
-  flex-shrink: 0;
-}
-
-.checklist-item .checklist-text {
-  flex: 1;
-  font-size: 0.88rem;
-  color: var(--text);
-  word-break: break-word;
-}
-
-.checklist-item.done .checklist-text {
-  color: var(--text-muted);
-  text-decoration: line-through;
-}
-
-.checklist-item .checklist-remove {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-size: 1rem;
-  line-height: 1;
-  padding: 2px 6px;
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-.checklist-item .checklist-remove:hover {
-  background: var(--border);
-  color: var(--danger);
-}
-
-.checklist-add {
-  display: flex;
-  gap: 6px;
-}
-
-.checklist-add input {
-  flex: 1;
-}
-
 .modal-actions {
   display: flex;
   justify-content: space-between;
@@ -927,12 +935,11 @@ kbd {
 
 #selectionModeBtn.active { background: var(--accent); color: white; }
 
-.task-card.selectable { cursor: pointer; }
-.task-card.selectable:active { cursor: pointer; }
-.task-card.selected {
+.txn-card.selectable { cursor: pointer; }
+.txn-card.selectable:active { cursor: pointer; }
+.txn-card.selected {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
-  opacity: 1;
 }
 
 @media (max-width: 720px) {
@@ -942,7 +949,7 @@ kbd {
 .column.column-drag-over { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .column.column-dragging { opacity: 0.4; }
 
-.task-created {
+.txn-created {
   font-size: 0.8rem;
   color: var(--text-muted);
   margin: -6px 0 12px;

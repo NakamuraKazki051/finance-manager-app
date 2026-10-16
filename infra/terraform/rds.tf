@@ -53,8 +53,8 @@ resource "aws_db_instance" "db" {
   storage_type      = "gp2"
   storage_encrypted = true
 
-  db_name             = "taskmanager"
-  username            = "taskmanager"
+  db_name             = "financemanager"
+  username            = "financemanager"
   password_wo         = ephemeral.random_password.db.result
   password_wo_version = var.db_password_version
 

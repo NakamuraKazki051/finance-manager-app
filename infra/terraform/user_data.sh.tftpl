@@ -2,7 +2,7 @@
 # EC2の初回起動時に1回だけ実行されるセットアップ（Terraform の templatefile で値を埋め込む）。
 # Docker・nginx・アプリ用の docker-compose.yml までを用意する。
 # アプリ本体（app.jar とフロントエンドのファイル）は後でデプロイする。
-#   80番   → nginx: /opt/task-manager/frontend を配信し、/api/ をバックエンドへ中継
+#   80番   → nginx: /opt/finance-manager/frontend を配信し、/api/ をバックエンドへ中継
 #   8080番 → Spring Boot（app.jar）。DBは RDS を使う
 # ※ 波かっこ付きの変数（docker compose 用）は、ドル記号を2つ重ねて書く（Terraform を通ると1つになる）
 set -euxo pipefail
@@ -34,7 +34,7 @@ retry curl -fsSL "https://github.com/docker/compose/releases/latest/download/doc
   -o /usr/local/lib/docker/cli-plugins/docker-compose
 chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
-APP_DIR=/opt/task-manager
+APP_DIR=/opt/finance-manager
 mkdir -p "$APP_DIR/frontend" "$APP_DIR/nginx"
 cd "$APP_DIR"
 
@@ -56,7 +56,7 @@ if [ ! -f frontend/index.html ]; then
   cat > frontend/index.html <<'EOF'
 <!doctype html>
 <html lang="ja"><meta charset="utf-8"><title>準備中</title>
-<p>タスク管理アプリは準備中です。</p>
+<p>収支管理アプリは準備中です。</p>
 </html>
 EOF
 fi
@@ -66,7 +66,7 @@ server {
   listen 80;
   root /usr/share/nginx/html;
   index index.html;
-  # ボードのインポート（JSON）を送れるようにする
+  # 家計簿のインポート（JSON）を送れるようにする
   client_max_body_size 10m;
 
   location / {
@@ -99,7 +99,7 @@ services:
       - "80:80"
     mem_limit: 64m
 
-  # app.jar を /opt/task-manager に置いてから `docker compose up -d app` で起動する
+  # app.jar を /opt/finance-manager に置いてから `docker compose up -d app` で起動する
   app:
     image: eclipse-temurin:25-jre
     restart: unless-stopped

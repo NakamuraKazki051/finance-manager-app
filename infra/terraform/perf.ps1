@@ -1,6 +1,6 @@
 #Requires -Version 7
 # 今ある環境に、E2E パフォーマンステスト（perf/e2e-perf.js、k6）を流す。
-# 終わったら、テストで作ったユーザー・ボード・タスクを DB から消し、サーバーのメモリ使用量を表示する。
+# 終わったら、テストで作ったユーザー・家計簿・カテゴリ・取引を DB から消し、サーバーのメモリ使用量を表示する。
 # 使い方:  ./perf.ps1                      （10人で2分）
 #          ./perf.ps1 -Vus 20 -Duration 5m
 param(
@@ -41,17 +41,16 @@ try {
     Write-Host 'テストデータを消して、サーバーの状態を確認しています'
     $commands = @(
         'set -e',
-        'cd /opt/task-manager',
+        'cd /opt/finance-manager',
         'docker pull -q postgres:16-alpine > /dev/null',
-        "docker run --rm -i --env-file .env -e PGHOST=$dbHost -e PGSSLMODE=require postgres:16-alpine sh -c 'PGPASSWORD=`$DB_PASSWORD psql -q -v ON_ERROR_STOP=1 -U taskmanager -d taskmanager' <<'SQL'",
+        "docker run --rm -i --env-file .env -e PGHOST=$dbHost -e PGSSLMODE=require postgres:16-alpine sh -c 'PGPASSWORD=`$DB_PASSWORD psql -q -v ON_ERROR_STOP=1 -U financemanager -d financemanager' <<'SQL'",
         'BEGIN;',
         "CREATE TEMP TABLE perf_users AS SELECT id FROM users WHERE email LIKE 'e2e-perf-%@example.com';",
-        'CREATE TEMP TABLE perf_tasks AS SELECT t.id FROM tasks t JOIN boards b ON b.id = t.board_id WHERE b.user_id IN (SELECT id FROM perf_users);',
-        'DELETE FROM checklist_items WHERE task_id IN (SELECT id FROM perf_tasks);',
-        'DELETE FROM task_categories WHERE task_id IN (SELECT id FROM perf_tasks);',
-        'DELETE FROM tasks WHERE id IN (SELECT id FROM perf_tasks);',
-        'DELETE FROM board_columns WHERE board_id IN (SELECT id FROM boards WHERE user_id IN (SELECT id FROM perf_users));',
-        'DELETE FROM boards WHERE user_id IN (SELECT id FROM perf_users);',
+        'CREATE TEMP TABLE perf_books AS SELECT id FROM books WHERE user_id IN (SELECT id FROM perf_users);',
+        'DELETE FROM transaction_tags WHERE transaction_id IN (SELECT id FROM transactions WHERE book_id IN (SELECT id FROM perf_books));',
+        'DELETE FROM transactions WHERE book_id IN (SELECT id FROM perf_books);',
+        'DELETE FROM categories WHERE book_id IN (SELECT id FROM perf_books);',
+        'DELETE FROM books WHERE id IN (SELECT id FROM perf_books);',
         '\echo テストユーザーを消しました:',
         'SELECT count(*) AS deleted_users FROM perf_users;',
         'DELETE FROM users WHERE id IN (SELECT id FROM perf_users);',
@@ -62,7 +61,7 @@ try {
         'echo "--- コンテナ"',
         'docker stats --no-stream --format "{{.Name}}: CPU {{.CPUPerc}} / メモリ {{.MemUsage}}"'
     )
-    $params = Join-Path ([IO.Path]::GetTempPath()) 'task-manager-perf.json'
+    $params = Join-Path ([IO.Path]::GetTempPath()) 'finance-manager-perf.json'
     # aws CLI は file:// を Windows の既定の文字コード（Shift-JIS）で読むので、日本語は \uXXXX にしておく
     @{ commands = $commands } | ConvertTo-Json -EscapeHandling EscapeNonAscii | Set-Content $params -Encoding utf8NoBOM
     $commandId = aws ssm send-command --region $region --instance-ids $instance --document-name AWS-RunShellScript `

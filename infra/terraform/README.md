@@ -1,6 +1,8 @@
 # EC2環境（Terraform）
 
-AWSの無料枠の範囲で、タスク管理アプリを動かすEC2を1台と、RDS（PostgreSQL）を1台作ります。
+AWSの無料枠の範囲で、収支管理アプリを動かすEC2を1台と、RDS（PostgreSQL）を1台作ります。
+
+リソース名はすべて `finance-manager-app-*` なので、派生元のタスク管理アプリ（`task-manager-app-*`）の環境とは混ざりません。ただし無料枠の時間（EC2・RDSそれぞれ月750時間）はAWSアカウント全体で共有するため、両方の環境を同時に立ち上げたままにすると無料枠を超えます。使わない方は `./down.ps1` で消しておいてください。
 
 ## 作られるもの
 
@@ -24,19 +26,19 @@ AWSの無料枠の範囲で、タスク管理アプリを動かすEC2を1台と�
 
 | ポート | 役割 | 中身 |
 |---|---|---|
-| 80 | nginx | `/opt/task-manager/frontend/`（`index.html` / `style.css` / `app.js`）を配信し、`/api/` をバックエンドへ中継する |
-| 8080 | バックエンドAPI | Spring Boot（`/opt/task-manager/app.jar`、`eclipse-temurin:25-jre`） |
+| 80 | nginx | `/opt/finance-manager/frontend/`（`index.html` / `style.css` / `app.js`）を配信し、`/api/` をバックエンドへ中継する |
+| 8080 | バックエンドAPI | Spring Boot（`/opt/finance-manager/app.jar`、`eclipse-temurin:25-jre`） |
 
 フロントエンドとAPIが同じオリジン（`http://<IP>`）になるので、CORSの設定は要りません。
 
-DBのパスワードは、`terraform apply` の間だけ作られ、RDSと Parameter Store に直接渡されます（ephemeral + write-only）。Terraform の state にもGitにも残りません。作り直したいときは `db_password_version` を1つ増やして apply し、EC2の `/opt/task-manager/.env` も新しい値に書き換えます。
+DBのパスワードは、`terraform apply` の間だけ作られ、RDSと Parameter Store に直接渡されます（ephemeral + write-only）。Terraform の state にもGitにも残りません。作り直したいときは `db_password_version` を1つ増やして apply し、EC2の `/opt/finance-manager/.env` も新しい値に書き換えます。
 
 サーバーの初回起動時に `user_data.sh.tftpl` が次の準備をします。
 
 - 2GBのスワップを作る（メモリ1GBで Spring Boot を動かすため）
 - Docker と Docker Compose を入れる
-- Parameter Store からDBのパスワードを読み、`/opt/task-manager/.env`（rootだけが読める）に保存する
-- `/opt/task-manager/` に `docker-compose.yml` と nginx の設定を置き、nginx（`web`）を起動する
+- Parameter Store からDBのパスワードを読み、`/opt/finance-manager/.env`（rootだけが読める）に保存する
+- `/opt/finance-manager/` に `docker-compose.yml` と nginx の設定を置き、nginx（`web`）を起動する
   - nginx は、デプロイするまで「準備中」のページを表示し、`/api/` には 502 を返す
 
 アプリ本体（フロントエンドのファイルと `app.jar`）は、このあと `deploy.ps1` が置き、バックエンドを起動します。
@@ -101,8 +103,8 @@ aws ssm start-session --target <インスタンスID> --region ap-northeast-1
 
 1. 画面を開く（`/`・`style.css`・`app.js`）
 2. 初回だけアカウント登録とログイン（`e2e-perf-<実行ID>-<番号>@example.com`）
-3. ボードを開く（ログイン中のユーザー・ボード・列・タスクの一覧）
-4. タスクを作る → 検索する → 別の列に移す → 完了にする → 編集する → 消す
+3. 家計簿を開く（ログイン中のユーザー・家計簿・カテゴリの一覧、今月の取引と集計）
+4. 取引を登録する → 集計を見る → 検索する → 別のカテゴリに移す → 編集する → 消す
 5. 1秒待つ（人が画面を見ている時間）
 
 結果は、操作ごとの応答時間（中央値・95%・最大）を表にして表示します。詳しい数値は `perf/results/<日時>.json`（Git には入れない）に保存します。
@@ -115,7 +117,7 @@ aws ssm start-session --target <インスタンスID> --region ap-northeast-1
 | 失敗したリクエスト | 1%未満 |
 
 - 目安を超えると、表の「目安」の列が NG になり、`perf.ps1` もエラーで終わります
-- テストが終わると（途中で止めた場合も）、テスト用ユーザーとそのボード・列・タスクを DB から消し、サーバーのメモリとコンテナの使用量を表示します。普段のデータには触りません
+- テストが終わると（途中で止めた場合も）、テスト用ユーザーとその家計簿・カテゴリ・取引を DB から消し、サーバーのメモリとコンテナの使用量を表示します。普段のデータには触りません
 - t3.micro は CPU クレジットを使い切ると遅くなります（追加料金はかかりません）。長時間・大人数のテストは避け、続けて流すときは間を空けてください
 
 ## 品質チェック
@@ -139,7 +141,7 @@ $r = 'ap-northeast-1'
 `user_data.sh.tftpl` で、docker compose の `${DB_PASSWORD}` が残り、Terraform の値が埋め込まれることを確かめます。
 
 ```powershell
-'templatefile("user_data.sh.tftpl", {region="ap-northeast-1", db_host="db.example", db_name="taskmanager", db_username="taskmanager", db_password_parameter="/p"})' | & $tf console
+'templatefile("user_data.sh.tftpl", {region="ap-northeast-1", db_host="db.example", db_name="financemanager", db_username="financemanager", db_password_parameter="/p"})' | & $tf console
 ```
 
 ### 3. 設定と実物のずれ（環境があるとき）
@@ -152,13 +154,13 @@ $r = 'ap-northeast-1'
 
 ```powershell
 # RDS がインターネットに公開されていないこと（False なら OK）
-aws rds describe-db-instances --region $r --db-instance-identifier task-manager-app-db --query "DBInstances[0].PubliclyAccessible"
+aws rds describe-db-instances --region $r --db-instance-identifier finance-manager-app-db --query "DBInstances[0].PubliclyAccessible"
 
 # EC2 で開いているポート（80 だけなら OK）
-aws ec2 describe-security-group-rules --region $r --filters "Name=group-id,Values=$(aws ec2 describe-security-groups --region $r --filters Name=group-name,Values=task-manager-app-app --query 'SecurityGroups[0].GroupId' --output text)" --query 'SecurityGroupRules[?IsEgress==`false`].[FromPort,CidrIpv4]' --output text
+aws ec2 describe-security-group-rules --region $r --filters "Name=group-id,Values=$(aws ec2 describe-security-groups --region $r --filters Name=group-name,Values=finance-manager-app-app --query 'SecurityGroups[0].GroupId' --output text)" --query 'SecurityGroupRules[?IsEgress==`false`].[FromPort,CidrIpv4]' --output text
 
 # state にDBのパスワードが入っていないこと（0 なら OK）
-$p = aws ssm get-parameter --region $r --name /task-manager-app/db/password --with-decryption --query Parameter.Value --output text
+$p = aws ssm get-parameter --region $r --name /finance-manager-app/db/password --with-decryption --query Parameter.Value --output text
 (Select-String -Path terraform.tfstate -Pattern $p -SimpleMatch).Count
 Remove-Variable p
 ```
@@ -175,7 +177,7 @@ $c = [Net.Sockets.TcpClient]::new(); $c.ConnectAsync((& $tf output -raw db_endpo
 ### 5. 消し忘れ（`down.ps1` のあと）
 
 ```powershell
-aws ec2 describe-instances --region $r --filters Name=tag:Project,Values=task-manager-app Name=instance-state-name,Values=pending,running,stopping,stopped --query "Reservations[].Instances[].InstanceId" --output text   # 空なら OK
+aws ec2 describe-instances --region $r --filters Name=tag:Project,Values=finance-manager-app Name=instance-state-name,Values=pending,running,stopping,stopped --query "Reservations[].Instances[].InstanceId" --output text   # 空なら OK
 aws ec2 describe-addresses --region $r --query "Addresses[].PublicIp" --output text            # 空なら OK（Elastic IP の消し忘れは料金がかかる）
 aws rds describe-db-instances --region $r --query "DBInstances[].DBInstanceIdentifier" --output text   # 空なら OK
 aws rds describe-db-snapshots --region $r --snapshot-type manual --query "DBSnapshots[].[DBSnapshotIdentifier,Encrypted]" --output text   # 2つまで、暗号化 True なら OK

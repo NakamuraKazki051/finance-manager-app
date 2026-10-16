@@ -11,11 +11,11 @@
     <relativePath/>
   </parent>
 
-  <groupId>com.taskmanager</groupId>
-  <artifactId>task-manager-api</artifactId>
+  <groupId>com.financemanager</groupId>
+  <artifactId>finance-manager-api</artifactId>
   <version>0.1.0</version>
-  <name>task-manager-api</name>
-  <description>タスク管理アプリ用 REST API (Board / Column / Task)</description>
+  <name>finance-manager-api</name>
+  <description>収支管理アプリ用 REST API (Book / Category / Transaction)</description>
 
   <properties>
     <java.version>25</java.version>

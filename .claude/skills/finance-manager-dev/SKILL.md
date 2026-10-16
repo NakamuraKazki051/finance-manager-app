@@ -1,0 +1,119 @@
+---
+name: finance-manager-dev
+description: finance-manager-app（素のHTML/JS フロント + Spring Boot/PostgreSQL バックエンドのカンバン式収支管理アプリ。task-manager-app から派生）で機能追加・不具合修正・機能削除・品質チェックを行い、Issue作成→ブランチ→テスト→PR→マージまで出荷するための手順と規約。このリポジトリでコードを変更するとき、「〜機能があると便利」「〜を直して」「〜をやめたい」「品質チェックして」「イシュー作って」「プルしておいて」「メインにマージ」などと言われたときは、明示的に頼まれていなくても必ずこのスキルを使うこと。
+---
+
+# finance-manager-app 開発・出荷ガイド
+
+要件定義は `docs/finance-app-requirements.md`。機能の ID（F-01〜F-13）とフェーズ分けはそちらに従う。
+
+このリポジトリで変更を加えて master に届けるまでの流れと、過去の作業で分かった落とし穴をまとめたもの。ユーザーは日本語で短く依頼してくることが多い（例:「一括削除があると便利かも、そのあとメインにプルもしておいて」）。依頼の意図を汲んで、フロント・バックエンド・テスト・ドキュメント・PRまで一通り仕上げる。
+
+## 構成（どこに何があるか）
+
+| 場所 | 役割 |
+|---|---|
+| `index.html` / `style.css` / `app.js` | フロントエンド。ビルド不要。`mvn package` 時にバックエンドの静的リソースとして同梱され `http://localhost:8080/` で配信される |
+| `backend/src/main/java/com/financemanager/api/` | `auth` / `user` / `book`（家計簿）/ `category`（カテゴリ＝カンバンの列）/ `transaction`（取引と月の集計）/ `common` のパッケージ構成。各パッケージに Controller・Dtos（record）・Repository・Entity |
+| `backend/src/test/java/...` | MockMvc の統合テスト（H2インメモリDB、Docker不要）。`TestAuth.registerAndLogin` でログイン済みセッションを作り、`TestData` で家計簿・カテゴリ・取引を作る |
+| `docs/finance-app-requirements.md` | 要件定義書 |
+| `README.md` | 使い方（番号付き手順）と「## 機能」（カテゴリ別の機能一覧） |
+| `backend/README.md` | APIエンドポイント表 |
+| `infra/terraform/` | AWS（EC2 + RDS + nginx）の Terraform。`up.ps1` / `down.ps1` で使うときだけ作る。手順と品質チェックのコマンドは `infra/terraform/README.md` |
+| `perf/e2e-perf.js` | E2E パフォーマンステスト（k6）。`infra/terraform/perf.ps1` から流し、終わるとテスト用ユーザー（`e2e-perf-*@example.com`）を DB から消す |
+
+## 実装の規約
+
+既存コードに合わせることが一番大事。迷ったら同じパッケージの隣のコードを真似る。
+
+**バックエンド**
+- すべてのエンドポイントは最初に `currentUser.require(httpRequest)`、続けて `requireBookOwnership(bookId, userId)` を呼ぶ。他ユーザーのデータは 403 ではなく **404** を返す（存在自体を隠すため）。
+- **金額は円の整数（`long`）で持ち、`double` や `BigDecimal` の小数は使わない。** 符号も持たず、収入か支出かはカテゴリの `type`（`INCOME` / `EXPENSE`）で決める。合計はDB側（JPQL の `sum`）で出す。
+- 取引の日付の列名は `transaction_date`（`date` は多くのDBで予約語）。月の絞り込みは `YearMonth` の1日〜末日で `between` する。月の境界（月初・月末・うるう年の2月29日）のテストを必ず付ける。
+- 複数行を書き換える処理は `@Transactional`。カテゴリを消した・動かしたあとは `displayOrder` を詰め直す。取引には手動の並び順は無い（日付か金額で並べる）。
+- カテゴリ・取引は家計簿への外部キーを持たないので、親を消すときは子を明示的に `deleteByBookId` / `deleteByCategoryId` する。忘れるとDBにゴミが残る。
+- リクエストDTOには、フロントの `maxlength` と同じ `@Size` と、必須項目の `@NotBlank` / `@NotEmpty` を付ける。付けないと、長すぎる値や欠けた値でDBエラーになって 500 が返る。
+- エラーは `ApiException.notFound/badRequest/conflict/unauthorized` を投げる。メッセージは日本語で、フロントのエラーバナーにそのまま表示される。
+- 一括系のAPIは「1件でも不正なら何も変更しない」ようにする（例: `POST /api/books/{bookId}/transactions/bulk-delete`）。
+- 「無ければ作る」処理はフロントで判定しない。複数タブや二重送信で同時に走ると重複して作られる（派生元のアプリで実際に初期ボードが3つできた）。サーバー側で `userRepository.findByIdForUpdate` でユーザー行をロックしてから判定・作成する（例: `POST /api/books/ensure-default`）。同時実行のテストは `@Transactional` を付けないテストクラスで、複数スレッドから同時に呼んで確認する。
+
+**フロントエンド（`app.js`）**
+- API呼び出しは `apiGet/apiPost/apiPut/apiPatch/apiDelete` を使う。失敗時はバナー表示済みなので、呼び出し側は `catch (err) { return; }` で処理を止めるだけでよい。
+- ユーザーが入力した文字列は `textContent` で入れる。`innerHTML` に入れるなら `escapeHtml` を通す。
+- `render()` は表示中の月（`currentMonth`）の取引と集計をサーバーから再取得して描画する。`renderColumns()` は手元の `visibleTxns` だけで描き直すので、表示の切り替えにはこちらを使う。金額の合計はフロントで足さず、`/summary` の値を表示する。
+- 金額の表示は `formatYen` / `formatSignedYen`（3桁カンマ区切り）を使う。
+- `localStorage` に置くのは端末ごとの表示設定だけ（テーマ・最後に開いた家計簿など）。取引のデータはすべてAPI経由で保存する。
+- 日付は `localDateString()` を使う。`toISOString()` はUTCなので、日本時間の0〜9時に前日の日付になる。
+- UI文言・コメント・エラーメッセージは日本語で書く。
+
+**機能を削除するとき**は、HTML・JS（定数、状態変数、イベント登録）・CSS・README・他機能からの参照をすべて grep で洗い出して消す。最後に grep して参照が0件になったことを確認する。
+
+## この環境の注意点
+
+- **Python・Node は入っていない。** `python` は Windows ストアのスタブ、`node` は存在しない。ファイル編集は Edit/Write ツールで行う。多くのファイルは CRLF 改行なので、sed の一括置換は避ける。
+- **Java は 25。** PC標準の `java`（`JAVA_HOME`）は 17 のままなので、ビルド・テスト・起動では必ず `~/tools/jdk-25.0.4.1+1` を使う（Bash なら `export JAVA_HOME="/c/Users/kazki/tools/jdk-25.0.4.1+1"`、jar の起動は `"$JAVA_HOME/bin/java"`）。17 のままだと `release version 25 not supported` で失敗する。
+- **メモリが約6GBしかない。** Maven はシステムに入っておらず、`~/tools/apache-maven-3.9.16` にある。テストは次のコマンドで実行する（`-o` はオフライン実行）:
+  ```bash
+  cd backend && export JAVA_HOME="/c/Users/kazki/tools/jdk-25.0.4.1+1" && \
+    MAVEN_OPTS="-Xmx384m" ~/tools/apache-maven-3.9.16/bin/mvn -q -o test \
+    -DargLine="-Xmx256m -Xss512k -XX:MaxMetaspaceSize=128m"
+  ```
+  数分かかるので `run_in_background` で流し、その間に別の作業を進める。結果は `backend/target/surefire-reports/*.xml` の `tests=` と `failures=` / `errors=` で確認する。ログはスクラッチパッドに出し、リポジトリの外に置き忘れない。
+- **サーバーの起動と動作確認。** `mvn -q -o package -DskipTests` で jar を作り、`"$JAVA_HOME/bin/java" -Xmx256m -Xss512k -XX:MaxMetaspaceSize=128m -jar target/finance-manager-api-0.1.0.jar`（JDK 25）を `run_in_background` で起動する。Windows では起動中の jar はロックされるので、作り直す前に 8080 番を使っているプロセスのコマンドラインを確かめてから止める。セッションはメモリ上にあるため、**再起動するとユーザーはログアウトされる**。ブラウザでのログイン・アカウント登録はできないので、ユーザーにログインしてもらう。ログインが要らない確認は curl で行い、作ったテストユーザーは終わったら DB から消す。
+- **Docker Desktop は自動起動しない。** ユーザーが手動で起動する運用で、本人も納得している。自動起動の設定は勧めない。Docker が止まっているとアプリを起動できずブラウザ確認ができないので、その場合は「未確認」とはっきり報告する。
+- **確認が終わったら、毎回すべて止める（ユーザーの指示、確認は不要）。** 8080番のサーバー → `docker compose stop`（DBコンテナ）→ `docker desktop stop`（Docker Desktop本体）の順に止める。データは名前付きボリューム `finance-manager-app_db-data` に残るので、`docker compose down -v` のようにボリュームを消すコマンドは使わない。ユーザーがまだログインして操作するかもしれない途中では止めない。
+
+## テストの考え方
+
+- バックエンドを変えたら、対応する `*ControllerTest` にテストを足す。正常系だけでなく、他の家計簿・他ユーザーのデータ（404）、不正な入力（400）、一括処理が途中で止まったときに何も変更されないこと、も確認する。
+- **不具合修正のテストは、修正を一時的に戻して失敗することを確かめる。** 修正前でも通るテストは不具合を検出できていない。確認が終わったら必ず元に戻し、戻したことを grep で確認する。
+- フロントは自動テストがない。変更箇所のコードを読み直し、ブラウザ確認できなかったことを PR と報告に書く。
+
+## 出荷フロー
+
+ユーザーからは、安全な変更なら確認なしにブランチ→PR→マージまで進めてよいと言われている。**master へ直接コミット・プッシュはしない。** データを消す、履歴を書き換える、などの危険な操作だけは事前に確認する。
+
+1. `git checkout -b feature/<名前>`（機能追加）または `fix/<名前>`（修正・削除）を master から切る。
+2. 実装、テスト、ドキュメント更新。
+   - `README.md`: 使い方の手順と「## 機能」のカテゴリ別一覧を、実装と一致させる。
+   - `backend/README.md`: エンドポイント表（APIを変えたとき）。
+3. Issue を作る（Issue も頼まれたとき、または品質チェックのように記録を残す価値がある作業のとき）。
+   - `gh issue create --label enhancement|bug` を使い、タイトルと本文は日本語。本文は「概要 / 対応内容 / 残タスク（チェックリスト）」の構成にする。
+4. コミットする。メッセージは英語で、1行目は命令形、本文に「なぜ変えたか」を書く。末尾には、その時点のシステム指示で指定された Co-Authored-By 行を付ける。
+5. `git push -u origin <branch>` のあと、`gh pr create --base master` で PR を作る。本文は日本語で「## Summary」と「## Test plan」（実施済みは `[x]`、未実施は `[ ]` と理由）を書き、Issue があれば `Closes #N`、末尾にシステム指示で指定された署名行を付ける。
+6. `gh pr merge <N> --merge --delete-branch` でマージし、`git checkout master && git pull` で手元を最新にする。
+7. 関係する Issue のチェックリストや説明が古くなっていたら更新する。
+
+## 品質チェックを頼まれたとき
+
+コードを全部読み、次の観点で見る。見つけたものは深刻な順に並べ、直すものはテスト付きで直す。
+
+- 認可: 所有者チェックの漏れ、CORS（Cookie付きの通信を許可する範囲）、ログイン時のセッションID再発行。
+- データ整合性: 親を削除したときに子が残らないか、`displayOrder` の詰め直し、トランザクション、金額の合計が画面とAPIで一致するか。
+- 入力検証: フロントの制限とバックエンドの `@Size` / `@NotBlank` が一致しているか。500 になる入力がないか。
+- フロント: XSS（`innerHTML`）、日付のタイムゾーン、状態の取り残し（家計簿・月の切り替え時やログアウト時）。
+- ドキュメント: README の機能一覧・手順、API表が実装と一致しているか。
+
+### Terraform（`infra/terraform/`）の品質チェック
+
+コマンドは `infra/terraform/README.md` の「品質チェック」にまとめてある。AWSに何かを作る・消す操作（`apply` / `up.ps1` / `down.ps1`）は料金がかかるので、ユーザーが頼んだときだけ行う。`plan` や読み取りだけの `aws ... describe` は確認なしで行ってよい。
+
+- 書式・構文: `terraform fmt -check -recursive` と `terraform validate` が通るか。`.terraform.lock.hcl` がコミットされているか。
+- ずれ（ドリフト）: 環境があるときに `terraform plan` が `No changes` になるか。コンソールで手で変えたものがないか。
+- 公開範囲: EC2のセキュリティグループで開いているのは 80 番だけか（8080 は `expose_backend_port` のときだけ、22 は開けない）。RDS は `publicly_accessible = false` で、5432 番はアプリのEC2のセキュリティグループからだけか。
+- 秘密情報: DBのパスワードが Git・`terraform.tfstate`・`user_data`・起動ログ（`/var/log/cloud-init-output.log`）のどこにも出ていないか。`*.tfstate` と `*.tfvars` が `.gitignore` されているか。
+- 権限: EC2のIAMロールは Session Manager、DBのパスワードのパラメータ1つ、デプロイ用S3バケットの読み取りだけか（`*` のリソース指定がないか）。S3バケットは公開をブロックしているか。
+- 暗号化・設定: EBS・RDS・スナップショットが暗号化されているか。IMDSv2 必須か。CPUクレジットが `standard` か。
+- 費用: 無料枠のサイズ（`t3.micro` / `db.t4g.micro`、ストレージ合計30GB以内）か。NATゲートウェイ・ロードバランサー・Secrets Manager・Performance Insights など有料の部品を使っていないか。`down.ps1` のあとに、EC2・RDS・Elastic IP が残っていないか。スナップショットが増えすぎていないか（2つまで）。
+- データ: `down.ps1` がスナップショットを取ってから消し、`up.ps1` がそこから復元するか。直接 `terraform destroy` を案内していないか。
+- テンプレート: `user_data.sh.tftpl` で、波かっこ付きの変数（compose 用）が `$${...}` とエスケープされているか。`terraform console` で `templatefile(...)` を展開して確かめる。`*.sh` / `*.tftpl` が LF 改行か（`.gitattributes`）。
+
+## 不具合を見つけたとき
+
+動作確認中・レビュー中・別作業のついでなど、どこで見つけても**その場で直してから報告する**（ユーザーの指示）。「直してよければ言ってください」と聞かない。テスト付きで直し、通常の出荷フローで master まで届け、何が原因で何を変えたかを伝える。ただし、ユーザー自身のデータ（家計簿・取引など）を消す・書き換える作業は、今まで通り先に確認する。
+
+## 報告の仕方
+
+- 日本語で、何を変えたか、何を確認したか、**何を確認できていないか**を分けて書く。
+- エラーやテストの失敗は隠さない。実際の出力（例:「Status expected:<403> but was:<200>」）を添えて、原因と直し方を伝える。
+- PR と Issue の URL を載せる。

@@ -1,14 +1,9 @@
-const CURRENT_BOARD_KEY = 'task-manager-app:currentBoard';
-const THEME_KEY = 'task-manager-app:theme';
-const NOTIFY_KEY = 'task-manager-app:notify';
-const LAST_NOTIFIED_KEY = 'task-manager-app:lastNotifiedDate';
-const DEFAULT_COLUMNS = [
-  { name: '未着手', done: false },
-  { name: '進行中', done: false },
-  { name: '完了', done: true },
-];
-const PRIORITY_LABEL = { high: '高', mid: '中', low: '低' };
+const CURRENT_BOOK_KEY = 'finance-manager-app:currentBook';
+const THEME_KEY = 'finance-manager-app:theme';
+const MAX_AMOUNT = 99999999;
+const TYPE_LABEL = { INCOME: '収入', EXPENSE: '支出' };
 const TAG_COLORS = ['sky', 'lime', 'green', 'red', 'azure', 'purple', 'yellow', 'orange', 'pink', 'slate'];
+const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
 // APIは、ページを開いたのと同じオリジンの /api/ にある前提
 // (ローカル: http://localhost:8080 / EC2: nginx（80番）が /api/ をバックエンド（8080番）へ中継)
@@ -20,18 +15,22 @@ function tagColorClass(name) {
   return TAG_COLORS[hash % TAG_COLORS.length];
 }
 
-let boards = [];
-let currentBoardId = null;
-let tasks = [];
-let visibleTasks = [];
-let columns = [];
+let books = [];
+let currentBookId = null;
+let categories = [];
+let currentMonth = currentMonthString();
+// 表示中の月の取引すべて(絞り込み前)と、絞り込み後に画面に出す取引
+let monthTxns = [];
+let visibleTxns = [];
+let summary = null;
 let editingId = null;
-let currentChecklist = [];
-let currentSort = 'manual';
+let currentSort = 'date';
 let searchDebounceTimer = null;
 let currentUser = null;
 let selectionMode = false;
-let selectedTaskIds = new Set();
+let selectedTxnIds = new Set();
+// 月を素早く切り替えたとき、古い月の応答が後から届いて表示を上書きしないようにする
+let renderSeq = 0;
 
 // --- APIクライアント ---
 
@@ -86,253 +85,333 @@ function clearApiError() {
   document.getElementById('apiErrorBanner').classList.add('hidden');
 }
 
-function fromApiTask(t) {
+function fromApiTxn(t) {
   return {
     id: t.id,
-    status: t.columnId,
-    title: t.title,
-    description: t.description || '',
-    dueDate: t.dueDate || '',
-    priority: (t.priority || 'MID').toLowerCase(),
-    categories: t.categories || [],
-    checklist: (t.checklist || []).map(i => ({ id: i.id, text: i.text, done: i.done })),
+    categoryId: t.categoryId,
+    amount: t.amount,
+    date: t.date,
+    memo: t.memo || '',
+    tags: t.tags || [],
     createdAt: t.createdAt,
-    order: t.displayOrder,
-    completed: !!t.completed,
   };
 }
 
-function toApiTaskPayload(data, columnId) {
-  return {
-    title: data.title,
-    description: data.description,
-    columnId,
-    dueDate: data.dueDate || null,
-    priority: data.priority.toUpperCase(),
-    categories: data.categories,
-    checklist: data.checklist.map(i => ({ text: i.text, done: i.done })),
-    completed: !!data.completed,
-  };
+function fromApiCategory(c) {
+  return { id: c.id, name: c.name, type: c.type };
 }
 
-function fromApiColumn(c) {
-  return { id: c.id, name: c.name, done: c.done };
+async function loadBookData(bookId) {
+  const cats = await apiGet(`/api/books/${bookId}/categories`);
+  currentBookId = bookId;
+  localStorage.setItem(CURRENT_BOOK_KEY, bookId);
+  categories = cats.map(fromApiCategory);
 }
 
-async function loadBoardData(boardId) {
-  const [cols, taskList] = await Promise.all([
-    apiGet(`/api/boards/${boardId}/columns`),
-    apiGet(`/api/boards/${boardId}/tasks`),
-  ]);
-  currentBoardId = boardId;
-  localStorage.setItem(CURRENT_BOARD_KEY, boardId);
-  columns = cols.map(fromApiColumn);
-  tasks = taskList.map(fromApiTask);
+async function refreshCategories() {
+  const cats = await apiGet(`/api/books/${currentBookId}/categories`);
+  categories = cats.map(fromApiCategory);
 }
 
-async function refreshTasks() {
-  const taskList = await apiGet(`/api/boards/${currentBoardId}/tasks`);
-  tasks = taskList.map(fromApiTask);
+function loadCurrentBookId() {
+  const id = localStorage.getItem(CURRENT_BOOK_KEY);
+  return (id && books.some(b => b.id === id)) ? id : books[0].id;
 }
 
-async function refreshColumns() {
-  const cols = await apiGet(`/api/boards/${currentBoardId}/columns`);
-  columns = cols.map(fromApiColumn);
+// --- 金額・日付の表示 ---
+
+function formatYen(amount) {
+  return `¥${Number(amount).toLocaleString('ja-JP')}`;
 }
 
-async function createDefaultColumns(boardId) {
-  for (const c of DEFAULT_COLUMNS) {
-    await apiPost(`/api/boards/${boardId}/columns`, { name: c.name, done: c.done });
-  }
+// 残高はマイナスになりうるので、符号を付けて表示する
+function formatSignedYen(amount) {
+  return amount < 0 ? `-${formatYen(-amount)}` : formatYen(amount);
 }
 
-function loadCurrentBoardId() {
-  const id = localStorage.getItem(CURRENT_BOARD_KEY);
-  return (id && boards.some(b => b.id === id)) ? id : boards[0].id;
+// toISOString()はUTC基準のため、日本時間の0〜9時に前日の日付になってしまう。ローカル日付で YYYY-MM-DD を作る
+function localDateString(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
-function parseCategories(str) {
+function currentMonthString() {
+  return localDateString().slice(0, 7);
+}
+
+function shiftMonth(month, delta) {
+  const [y, m] = month.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return localDateString(d).slice(0, 7);
+}
+
+function formatMonthLabel(month) {
+  const [y, m] = month.split('-').map(Number);
+  return `${y}年${m}月`;
+}
+
+// カードの日付。曜日を付けて、いつの出費か思い出しやすくする
+function formatTxnDate(isoDate) {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const weekday = WEEKDAYS[new Date(y, m - 1, d).getDay()];
+  return `${m}/${d}(${weekday})`;
+}
+
+function formatCreatedAt(isoInstant) {
+  const d = new Date(isoInstant);
+  if (Number.isNaN(d.getTime())) return '';
+  return localDateString(d).replaceAll('-', '/');
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function parseTags(str) {
   const list = str.split(',').map(s => s.trim()).filter(Boolean);
   return [...new Set(list)];
 }
 
-function isOverdue(task) {
-  const column = columns.find(c => c.id === task.status);
-  if (!task.dueDate || (column && column.done)) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return new Date(task.dueDate) < today;
+function categoryById(id) {
+  return categories.find(c => c.id === id);
 }
 
-function isDueSoon(task) {
-  const column = columns.find(c => c.id === task.status);
-  if (!task.dueDate || (column && column.done)) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const due = new Date(task.dueDate);
-  if (due < today) return false;
-  const diffDays = Math.round((due - today) / 86400000);
-  return diffDays <= 2;
-}
+// --- 描画 ---
 
-function getAllCategories() {
+function getAllTags() {
   const set = new Set();
-  tasks.forEach(t => (t.categories || []).forEach(c => set.add(c)));
+  monthTxns.forEach(t => t.tags.forEach(tag => set.add(tag)));
   return [...set].sort();
 }
 
-function buildTaskSearchParams() {
+function readAmountFilter(id) {
+  const value = document.getElementById(id).value.trim();
+  if (!value) return null;
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
+
+function isFilterActive() {
+  return !!(document.getElementById('filterTag').value
+    || document.getElementById('searchInput').value.trim()
+    || readAmountFilter('minAmount') !== null
+    || readAmountFilter('maxAmount') !== null);
+}
+
+function buildFilterParams() {
   const params = new URLSearchParams();
-  const category = document.getElementById('filterCategory').value;
-  const priority = document.getElementById('filterPriority').value;
-  const q = document.getElementById('searchInput').value.trim();
-  if (category) params.set('category', category);
-  if (priority) params.set('priority', priority.toUpperCase());
-  if (q) params.set('q', q);
+  params.set('month', currentMonth);
   params.set('sort', currentSort);
+  const tag = document.getElementById('filterTag').value;
+  const q = document.getElementById('searchInput').value.trim();
+  const min = readAmountFilter('minAmount');
+  const max = readAmountFilter('maxAmount');
+  if (tag) params.set('tag', tag);
+  if (q) params.set('q', q);
+  if (min !== null) params.set('minAmount', String(min));
+  if (max !== null) params.set('maxAmount', String(max));
   return params;
 }
 
 async function render() {
-  const filterCategory = document.getElementById('filterCategory').value;
-  renderCategoryFilterOptions(filterCategory);
-
-  const params = buildTaskSearchParams();
+  if (!currentBookId) return;
+  const seq = ++renderSeq;
+  const base = `/api/books/${currentBookId}`;
+  let monthList, monthSummary, filteredList;
   try {
-    const taskList = await apiGet(`/api/boards/${currentBoardId}/tasks?${params.toString()}`);
-    visibleTasks = taskList.map(fromApiTask);
+    [monthList, monthSummary] = await Promise.all([
+      apiGet(`${base}/transactions?month=${currentMonth}&sort=${currentSort}`),
+      apiGet(`${base}/summary?month=${currentMonth}`),
+    ]);
+    filteredList = isFilterActive()
+      ? await apiGet(`${base}/transactions?${buildFilterParams().toString()}`)
+      : monthList;
   } catch (err) {
     return;
   }
+  if (seq !== renderSeq) return;
+  monthTxns = monthList.map(fromApiTxn);
+  visibleTxns = filteredList.map(fromApiTxn);
+  summary = monthSummary;
+  renderTagFilterOptions(document.getElementById('filterTag').value);
+  renderMonthBar();
   renderColumns();
   updateFilterBar();
 }
 
-function isFilterActive() {
-  return !!(document.getElementById('filterCategory').value
-    || document.getElementById('filterPriority').value
-    || document.getElementById('searchInput').value.trim());
+function renderMonthBar() {
+  document.getElementById('monthLabel').textContent = formatMonthLabel(currentMonth);
+  document.getElementById('thisMonthBtn').disabled = currentMonth === currentMonthString();
+  const income = summary ? summary.income : 0;
+  const expense = summary ? summary.expense : 0;
+  const balance = summary ? summary.balance : 0;
+  document.getElementById('summaryIncome').textContent = formatYen(income);
+  document.getElementById('summaryExpense').textContent = formatYen(expense);
+  const balanceEl = document.getElementById('summaryBalance');
+  balanceEl.textContent = formatSignedYen(balance);
+  balanceEl.classList.toggle('negative', balance < 0);
 }
 
-// 検索・絞り込みでタスクが隠れていることに気づけるよう、件数と解除ボタンを出す
+async function changeMonth(month) {
+  if (month === currentMonth) return;
+  currentMonth = month;
+  // 前の月で選んだ取引が見えないまま残って、まとめて削除されないようにする
+  selectedTxnIds = new Set();
+  updateSelectionBar();
+  // 金額は新しい月の集計が届いてから描き直す(前の月の金額を新しい月の名前の横に出さない)
+  document.getElementById('monthLabel').textContent = formatMonthLabel(currentMonth);
+  await render();
+}
+
+// 検索・絞り込みで取引が隠れていることに気づけるよう、件数と解除ボタンを出す
 function updateFilterBar() {
-  const active = currentBoardId !== null && isFilterActive();
+  const active = currentBookId !== null && isFilterActive();
   document.getElementById('filterBar').classList.toggle('hidden', !active);
   if (active) {
+    const total = visibleTxns.reduce((sum, t) => sum + t.amount, 0);
     document.getElementById('filterSummary').textContent =
-      `絞り込み中: 全${tasks.length}件中 ${visibleTasks.length}件を表示`;
+      `絞り込み中: この月の${monthTxns.length}件中 ${visibleTxns.length}件を表示(合計 ${formatYen(total)})`;
   }
 }
 
 function clearFilters() {
-  document.getElementById('filterCategory').value = '';
-  document.getElementById('filterPriority').value = '';
+  document.getElementById('filterTag').value = '';
   document.getElementById('searchInput').value = '';
+  document.getElementById('minAmount').value = '';
+  document.getElementById('maxAmount').value = '';
   render();
+}
+
+function renderTagFilterOptions(selectedValue) {
+  const select = document.getElementById('filterTag');
+  const tags = getAllTags();
+  // 今の月に無いタグで絞り込み中でも、選択が勝手に外れないよう残しておく
+  if (selectedValue && !tags.includes(selectedValue)) tags.push(selectedValue);
+  select.innerHTML = '<option value="">全タグ</option>' +
+    tags.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+  select.value = selectedValue || '';
+}
+
+function categoryTotal(categoryId) {
+  const row = summary && summary.categories.find(c => c.categoryId === categoryId);
+  return row ? row.total : 0;
 }
 
 function renderColumns() {
   const board = document.getElementById('board');
   board.innerHTML = '';
 
-  // 検索やフィルタで見えなくなったタスクは選択から外す(見えていないタスクを誤って消さないため)
+  // 検索やフィルタで見えなくなった取引は選択から外す(見えていない取引を誤って消さないため)
   if (selectionMode) {
-    const renderedIds = new Set(visibleTasks.map(t => t.id));
-    selectedTaskIds = new Set([...selectedTaskIds].filter(id => renderedIds.has(id)));
+    const renderedIds = new Set(visibleTxns.map(t => t.id));
+    selectedTxnIds = new Set([...selectedTxnIds].filter(id => renderedIds.has(id)));
     updateSelectionBar();
   }
 
-  columns.forEach((col, index) => {
+  categories.forEach((cat, index) => {
     const section = document.createElement('section');
-    section.className = 'column';
-    section.dataset.status = col.id;
+    section.className = `column ${cat.type === 'INCOME' ? 'income' : 'expense'}`;
+    section.dataset.categoryId = cat.id;
 
     const h2 = document.createElement('h2');
     const nameSpan = document.createElement('span');
     nameSpan.className = 'column-name';
-    nameSpan.textContent = col.name;
-    nameSpan.title = 'クリックして列名を編集・ドラッグで並び替え';
+    nameSpan.textContent = cat.name;
+    nameSpan.title = 'クリックしてカテゴリ名を編集・ドラッグで並び替え';
     nameSpan.draggable = true;
+    const typeBtn = document.createElement('button');
+    typeBtn.type = 'button';
+    typeBtn.className = `column-type ${cat.type === 'INCOME' ? 'income' : 'expense'}`;
+    typeBtn.textContent = TYPE_LABEL[cat.type];
+    typeBtn.title = `${TYPE_LABEL[cat.type]}のカテゴリです(クリックで${TYPE_LABEL[otherType(cat.type)]}に変更)`;
     const count = document.createElement('span');
     count.className = 'count';
     const moveLeftBtn = document.createElement('button');
     moveLeftBtn.type = 'button';
     moveLeftBtn.className = 'column-move';
     moveLeftBtn.textContent = '◀';
-    moveLeftBtn.setAttribute('aria-label', '列を左に移動');
-    moveLeftBtn.title = '列を左に移動';
+    moveLeftBtn.setAttribute('aria-label', 'カテゴリを左に移動');
+    moveLeftBtn.title = 'カテゴリを左に移動';
     moveLeftBtn.disabled = index === 0;
     const moveRightBtn = document.createElement('button');
     moveRightBtn.type = 'button';
     moveRightBtn.className = 'column-move';
     moveRightBtn.textContent = '▶';
-    moveRightBtn.setAttribute('aria-label', '列を右に移動');
-    moveRightBtn.title = '列を右に移動';
-    moveRightBtn.disabled = index === columns.length - 1;
-    const doneBtn = document.createElement('button');
-    doneBtn.type = 'button';
-    doneBtn.className = 'column-done-toggle';
-    doneBtn.classList.toggle('active', !!col.done);
-    doneBtn.textContent = '✓';
-    doneBtn.setAttribute('aria-pressed', String(!!col.done));
-    doneBtn.title = col.done
-      ? 'この列は完了扱いです(クリックで解除)'
-      : 'この列を完了扱いにする(期限超過の表示を消す)';
+    moveRightBtn.setAttribute('aria-label', 'カテゴリを右に移動');
+    moveRightBtn.title = 'カテゴリを右に移動';
+    moveRightBtn.disabled = index === categories.length - 1;
     const delBtn = document.createElement('button');
     delBtn.type = 'button';
     delBtn.className = 'column-delete';
     delBtn.textContent = '×';
-    delBtn.setAttribute('aria-label', '列を削除');
+    delBtn.setAttribute('aria-label', 'カテゴリを削除');
 
     h2.appendChild(nameSpan);
     h2.appendChild(count);
     h2.appendChild(moveLeftBtn);
     h2.appendChild(moveRightBtn);
-    h2.appendChild(doneBtn);
     h2.appendChild(delBtn);
+
+    const totalRow = document.createElement('div');
+    totalRow.className = 'column-total';
+    const totalAmount = document.createElement('span');
+    totalAmount.className = 'column-total-amount';
+    totalAmount.textContent = formatYen(categoryTotal(cat.id));
+    totalAmount.title = `${formatMonthLabel(currentMonth)}の合計`;
+    totalRow.appendChild(typeBtn);
+    totalRow.appendChild(totalAmount);
 
     const list = document.createElement('div');
     list.className = 'card-list';
 
     section.appendChild(h2);
+    section.appendChild(totalRow);
     section.appendChild(list);
     board.appendChild(section);
 
-    const colTasks = visibleTasks.filter(t => t.status === col.id);
-    count.textContent = colTasks.length;
+    const colTxns = visibleTxns.filter(t => t.categoryId === cat.id);
+    count.textContent = colTxns.length;
 
-    if (colTasks.length === 0) {
+    if (colTxns.length === 0) {
       const hint = document.createElement('div');
       hint.className = 'empty-hint';
-      hint.textContent = isFilterActive() ? '条件に合うタスクはありません' : 'タスクはありません';
+      hint.textContent = isFilterActive() ? '条件に合う取引はありません' : 'この月の取引はありません';
       list.appendChild(hint);
     }
 
-    colTasks.forEach(task => list.appendChild(renderCard(task)));
+    colTxns.forEach(txn => list.appendChild(renderCard(txn, cat)));
 
-    nameSpan.addEventListener('click', () => startEditColumnName(col, nameSpan));
-    moveLeftBtn.addEventListener('click', () => moveColumnByOffset(col, -1));
-    moveRightBtn.addEventListener('click', () => moveColumnByOffset(col, 1));
-    doneBtn.addEventListener('click', () => toggleColumnDone(col));
-    delBtn.addEventListener('click', () => deleteColumn(col.id));
-    setupColumnDrag(section, nameSpan, col);
-    setupDropZone(section, list, col.id);
+    nameSpan.addEventListener('click', () => startEditCategoryName(cat, nameSpan));
+    typeBtn.addEventListener('click', () => toggleCategoryType(cat));
+    moveLeftBtn.addEventListener('click', () => moveCategoryByOffset(cat, -1));
+    moveRightBtn.addEventListener('click', () => moveCategoryByOffset(cat, 1));
+    delBtn.addEventListener('click', () => deleteCategory(cat));
+    setupColumnDrag(section, nameSpan, cat);
+    setupDropZone(section, cat.id);
   });
 
   board.appendChild(renderAddColumn());
 }
 
-function setupColumnDrag(section, handle, col) {
+function otherType(type) {
+  return type === 'INCOME' ? 'EXPENSE' : 'INCOME';
+}
+
+function setupColumnDrag(section, handle, cat) {
   handle.addEventListener('dragstart', (e) => {
     section.classList.add('column-dragging');
-    e.dataTransfer.setData('application/x-column-id', col.id);
+    e.dataTransfer.setData('application/x-category-id', cat.id);
     e.dataTransfer.effectAllowed = 'move';
   });
   handle.addEventListener('dragend', () => {
     section.classList.remove('column-dragging');
   });
   section.addEventListener('dragover', (e) => {
-    if (!e.dataTransfer.types.includes('application/x-column-id')) return;
+    if (!e.dataTransfer.types.includes('application/x-category-id')) return;
     e.preventDefault();
     section.classList.add('column-drag-over');
   });
@@ -340,47 +419,41 @@ function setupColumnDrag(section, handle, col) {
     if (!section.contains(e.relatedTarget)) section.classList.remove('column-drag-over');
   });
   section.addEventListener('drop', async (e) => {
-    if (!e.dataTransfer.types.includes('application/x-column-id')) return;
+    if (!e.dataTransfer.types.includes('application/x-category-id')) return;
     e.preventDefault();
     section.classList.remove('column-drag-over');
-    const draggedId = e.dataTransfer.getData('application/x-column-id');
-    if (!draggedId || draggedId === col.id) return;
-    await moveColumn(draggedId, col.id);
+    const draggedId = e.dataTransfer.getData('application/x-category-id');
+    if (!draggedId || draggedId === cat.id) return;
+    await moveCategory(draggedId, cat.id);
   });
 }
 
-async function moveColumn(draggedId, targetId) {
-  const targetIndex = columns.findIndex(c => c.id === targetId);
+async function moveCategory(draggedId, targetId) {
+  const targetIndex = categories.findIndex(c => c.id === targetId);
   if (targetIndex === -1) return;
   try {
-    await apiPatch(`/api/columns/${draggedId}/move`, { displayOrder: targetIndex });
-  } catch (e) {
-    render();
-    return;
-  }
-  await refreshColumns();
+    await apiPatch(`/api/categories/${draggedId}/move`, { displayOrder: targetIndex });
+    await refreshCategories();
+  } catch (e) { /* エラーはバナー表示済み */ }
   render();
 }
 
-async function moveColumnByOffset(col, offset) {
-  const index = columns.findIndex(c => c.id === col.id);
+async function moveCategoryByOffset(cat, offset) {
+  const index = categories.findIndex(c => c.id === cat.id);
   const newIndex = index + offset;
-  if (index === -1 || newIndex < 0 || newIndex >= columns.length) return;
+  if (index === -1 || newIndex < 0 || newIndex >= categories.length) return;
   try {
-    await apiPatch(`/api/columns/${col.id}/move`, { displayOrder: newIndex });
-  } catch (e) {
-    render();
-    return;
-  }
-  await refreshColumns();
+    await apiPatch(`/api/categories/${cat.id}/move`, { displayOrder: newIndex });
+    await refreshCategories();
+  } catch (e) { /* エラーはバナー表示済み */ }
   render();
 }
 
-function startEditColumnName(col, nameSpan) {
+function startEditCategoryName(cat, nameSpan) {
   const input = document.createElement('input');
   input.type = 'text';
   input.className = 'column-name-input';
-  input.value = col.name;
+  input.value = cat.name;
   input.maxLength = 30;
   nameSpan.replaceWith(input);
   input.focus();
@@ -391,38 +464,42 @@ function startEditColumnName(col, nameSpan) {
     if (committed) return;
     committed = true;
     const val = input.value.trim();
-    if (val && val !== col.name) {
+    if (val && val !== cat.name) {
       try {
-        const updated = await apiPut(`/api/columns/${col.id}`, { name: val });
-        col.name = updated.name;
+        const updated = await apiPut(`/api/categories/${cat.id}`, { name: val });
+        cat.name = updated.name;
       } catch (e) { /* エラーはバナー表示済み */ }
     }
-    render();
+    renderColumns();
   };
   input.addEventListener('blur', commit);
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-    if (e.key === 'Escape') { e.preventDefault(); committed = true; render(); }
+    if (e.key === 'Escape') { e.preventDefault(); committed = true; renderColumns(); }
   });
 }
 
-async function toggleColumnDone(col) {
+async function toggleCategoryType(cat) {
+  const next = otherType(cat.type);
+  if (!confirm(`「${cat.name}」を${TYPE_LABEL[next]}のカテゴリに変更しますか?\nこのカテゴリの取引は、すべての月で${TYPE_LABEL[next]}として集計されます。`)) return;
   try {
-    const updated = await apiPut(`/api/columns/${col.id}`, { done: !col.done });
-    col.done = updated.done;
-  } catch (e) { /* エラーはバナー表示済み */ }
+    const updated = await apiPut(`/api/categories/${cat.id}`, { type: next });
+    cat.type = updated.type;
+  } catch (e) { return; }
   render();
 }
 
-async function deleteColumn(id) {
-  if (columns.length <= 1) { alert('最後の列は削除できません。'); return; }
-  const hasTasks = tasks.some(t => t.status === id);
-  if (hasTasks) { alert('この列にはタスクがあります。先にタスクを他の列へ移動してください。'); return; }
-  if (!confirm('この列を削除しますか?')) return;
+async function deleteCategory(cat) {
+  if (categories.length <= 1) { alert('最後のカテゴリは削除できません。'); return; }
+  const monthCount = monthTxns.filter(t => t.categoryId === cat.id).length;
+  const detail = monthCount > 0
+    ? `\nこのカテゴリの取引(${formatMonthLabel(currentMonth)}の${monthCount}件を含む、すべての月の分)も削除されます。この操作は取り消せません。`
+    : '\nこのカテゴリの取引が他の月にあれば、それも削除されます。この操作は取り消せません。';
+  if (!confirm(`カテゴリ「${cat.name}」を削除しますか?${detail}`)) return;
   try {
-    await apiDelete(`/api/columns/${id}`);
+    await apiDelete(`/api/categories/${cat.id}`);
+    await refreshCategories();
   } catch (e) { return; }
-  columns = columns.filter(c => c.id !== id);
   render();
 }
 
@@ -433,20 +510,18 @@ function renderAddColumn() {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'add-column-btn';
-  btn.textContent = '+ 列を追加';
+  btn.textContent = '+ カテゴリを追加';
 
   const form = document.createElement('form');
   form.className = 'add-column-form hidden';
   const input = document.createElement('input');
   input.type = 'text';
-  input.placeholder = '列名を入力';
+  input.placeholder = 'カテゴリ名を入力';
   input.maxLength = 30;
-  const doneLabel = document.createElement('label');
-  doneLabel.className = 'add-column-done';
-  const doneCheckbox = document.createElement('input');
-  doneCheckbox.type = 'checkbox';
-  doneLabel.appendChild(doneCheckbox);
-  doneLabel.appendChild(document.createTextNode('完了扱いの列にする'));
+  input.setAttribute('aria-label', 'カテゴリ名');
+  const typeSelect = document.createElement('select');
+  typeSelect.setAttribute('aria-label', '収入か支出か');
+  typeSelect.innerHTML = '<option value="EXPENSE">支出のカテゴリ</option><option value="INCOME">収入のカテゴリ</option>';
   const formActions = document.createElement('div');
   formActions.className = 'add-column-actions';
   const confirmBtn = document.createElement('button');
@@ -460,7 +535,7 @@ function renderAddColumn() {
   formActions.appendChild(confirmBtn);
   formActions.appendChild(cancelBtn);
   form.appendChild(input);
-  form.appendChild(doneLabel);
+  form.appendChild(typeSelect);
   form.appendChild(formActions);
 
   btn.addEventListener('click', () => {
@@ -472,15 +547,15 @@ function renderAddColumn() {
     form.classList.add('hidden');
     btn.classList.remove('hidden');
     input.value = '';
-    doneCheckbox.checked = false;
+    typeSelect.value = 'EXPENSE';
   });
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const name = input.value.trim();
     if (!name) return;
     try {
-      const created = await apiPost(`/api/boards/${currentBoardId}/columns`, { name, done: doneCheckbox.checked });
-      columns.push(fromApiColumn(created));
+      const created = await apiPost(`/api/books/${currentBookId}/categories`, { name, type: typeSelect.value });
+      categories.push(fromApiCategory(created));
     } catch (err) { return; }
     render();
   });
@@ -490,88 +565,60 @@ function renderAddColumn() {
   return wrap;
 }
 
-function renderCategoryFilterOptions(selectedValue) {
-  const select = document.getElementById('filterCategory');
-  const categories = getAllCategories();
-  select.innerHTML = '<option value="">全カテゴリ</option>' +
-    categories.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
-  select.value = categories.includes(selectedValue) ? selectedValue : '';
-}
-
-function renderCard(task) {
+function renderCard(txn, cat) {
   const card = document.createElement('div');
-  card.className = 'task-card';
-  card.classList.toggle('completed', !!task.completed);
+  card.className = 'txn-card';
   card.classList.toggle('selectable', selectionMode);
-  card.classList.toggle('selected', selectionMode && selectedTaskIds.has(task.id));
+  card.classList.toggle('selected', selectionMode && selectedTxnIds.has(txn.id));
   card.draggable = !selectionMode;
-  card.dataset.id = task.id;
+  card.dataset.id = txn.id;
   // キーボード(Tab/Enter)でもカードを開けるようにする
   card.tabIndex = 0;
   card.setAttribute('role', 'button');
 
-  const overdue = isOverdue(task);
-  const dueSoon = !overdue && isDueSoon(task);
-  const dueLabel = task.dueDate ? formatDueLabel(task.dueDate) : '';
-  const checklist = task.checklist || [];
-  const checklistDone = checklist.filter(i => i.done).length;
-
+  const income = cat.type === 'INCOME';
   card.innerHTML = `
-    <div class="task-card-head">
-      <input type="checkbox" class="task-complete-check" aria-label="タスクを完了にする">
-      <div class="task-card-title"></div>
+    <div class="txn-card-head">
+      ${selectionMode ? '<input type="checkbox" class="txn-select-check" aria-label="この取引を選択">' : ''}
+      <span class="txn-amount ${income ? 'income' : 'expense'}"></span>
+      <span class="txn-date"></span>
     </div>
-    ${task.description ? '<div class="task-card-desc"></div>' : ''}
-    <div class="task-meta">
-      <span class="badge ${task.priority}">優先度 ${PRIORITY_LABEL[task.priority]}</span>
-      ${task.dueDate ? `<span class="badge due ${overdue ? 'overdue' : ''} ${dueSoon ? 'due-soon' : ''}" title="期限: ${task.dueDate}">📅 ${dueLabel}${overdue ? ' (期限超過)' : ''}</span>` : ''}
-      ${checklist.length ? `<span class="badge checklist ${checklistDone === checklist.length ? 'complete' : ''}">✓ ${checklistDone}/${checklist.length}</span>` : ''}
-      ${(task.categories || []).map(c => `<span class="tag ${tagColorClass(c)}"></span>`).join('')}
-    </div>
+    <div class="txn-memo ${txn.memo ? '' : 'empty'}"></div>
+    ${txn.tags.length ? `<div class="txn-meta">${txn.tags.map(t => `<span class="tag ${tagColorClass(t)}"></span>`).join('')}</div>` : ''}
   `;
 
-  card.querySelector('.task-card-title').textContent = task.title;
-  if (task.description) {
-    card.querySelector('.task-card-desc').textContent = task.description;
-  }
+  card.querySelector('.txn-amount').textContent = `${income ? '+' : '−'}${formatYen(txn.amount)}`;
+  card.querySelector('.txn-date').textContent = formatTxnDate(txn.date);
+  card.querySelector('.txn-memo').textContent = txn.memo || cat.name;
   const tagEls = card.querySelectorAll('.tag');
-  (task.categories || []).forEach((c, i) => { tagEls[i].textContent = c; });
+  txn.tags.forEach((t, i) => { tagEls[i].textContent = t; });
+  card.setAttribute('aria-label', `${txn.date} ${cat.name} ${TYPE_LABEL[cat.type]} ${formatYen(txn.amount)} ${txn.memo}`);
 
-  const completeCheck = card.querySelector('.task-complete-check');
-  completeCheck.addEventListener('click', (e) => e.stopPropagation());
-
-  // 選択モード中は先頭のチェックボックスとカードのクリックを「選択」に使う
   if (selectionMode) {
-    completeCheck.checked = selectedTaskIds.has(task.id);
-    completeCheck.setAttribute('aria-label', 'このタスクを選択');
-    card.setAttribute('aria-pressed', String(selectedTaskIds.has(task.id)));
-    const toggleSelected = () => setTaskSelected(task.id, !selectedTaskIds.has(task.id), card, completeCheck);
-    completeCheck.addEventListener('change', () => setTaskSelected(task.id, completeCheck.checked, card, completeCheck));
+    const check = card.querySelector('.txn-select-check');
+    check.checked = selectedTxnIds.has(txn.id);
+    card.setAttribute('aria-pressed', String(selectedTxnIds.has(txn.id)));
+    check.addEventListener('click', (e) => e.stopPropagation());
+    check.addEventListener('change', () => setTxnSelected(txn.id, check.checked, card, check));
+    const toggleSelected = () => setTxnSelected(txn.id, !selectedTxnIds.has(txn.id), card, check);
     card.addEventListener('click', toggleSelected);
     onCardActivateKey(card, toggleSelected);
     return card;
   }
 
-  completeCheck.checked = !!task.completed;
-  completeCheck.addEventListener('change', () => toggleTaskComplete(task, completeCheck));
-
-  card.addEventListener('click', () => openModal(task));
-  onCardActivateKey(card, () => openModal(task));
+  card.addEventListener('click', () => openModal(txn));
+  onCardActivateKey(card, () => openModal(txn));
   card.addEventListener('dragstart', (e) => {
     card.classList.add('dragging');
-    e.dataTransfer.setData('text/plain', task.id);
+    e.dataTransfer.setData('text/plain', txn.id);
     e.dataTransfer.effectAllowed = 'move';
   });
-  card.addEventListener('dragend', () => {
-    card.classList.remove('dragging');
-    // drop先が無効だった場合、dragover中に移動したDOMが実データとズレたままになるため再描画して同期する
-    render();
-  });
+  card.addEventListener('dragend', () => card.classList.remove('dragging'));
 
   return card;
 }
 
-// カード自体にフォーカスがあるときだけ反応させる(中の完了チェックボックスでのSpaceはそちらの操作)
+// カード自体にフォーカスがあるときだけ反応させる(中のチェックボックスでのSpaceはそちらの操作)
 function onCardActivateKey(card, action) {
   card.addEventListener('keydown', (e) => {
     if (e.target !== card) return;
@@ -582,312 +629,233 @@ function onCardActivateKey(card, action) {
   });
 }
 
-async function toggleTaskComplete(task, checkbox) {
-  const completed = checkbox.checked;
-  try {
-    await apiPatch(`/api/tasks/${task.id}/complete`, { completed });
-  } catch (e) {
-    checkbox.checked = !completed;
-    return;
-  }
-  const idx = tasks.findIndex(t => t.id === task.id);
-  if (idx !== -1) tasks[idx].completed = completed;
-  render();
+// 取引をドロップすると、そのカテゴリへ付け替える(カテゴリ内の並び順は日付・金額で決まる)
+function setupDropZone(section, categoryId) {
+  section.addEventListener('dragover', (e) => {
+    if (e.dataTransfer.types.includes('application/x-category-id')) return;
+    e.preventDefault();
+    section.classList.add('drag-over');
+  });
+  section.addEventListener('dragleave', (e) => {
+    if (!section.contains(e.relatedTarget)) section.classList.remove('drag-over');
+  });
+  section.addEventListener('drop', async (e) => {
+    if (e.dataTransfer.types.includes('application/x-category-id')) return;
+    e.preventDefault();
+    section.classList.remove('drag-over');
+    const id = e.dataTransfer.getData('text/plain');
+    const txn = monthTxns.find(t => t.id === id);
+    if (!txn || txn.categoryId === categoryId) return;
+    try {
+      await apiPatch(`/api/transactions/${id}/move`, { categoryId });
+    } catch (err) { /* エラーはバナー表示済み */ }
+    render();
+  });
 }
 
 // --- 一括選択・一括削除 ---
 
 function setSelectionMode(enabled) {
   selectionMode = enabled;
-  selectedTaskIds = new Set();
+  selectedTxnIds = new Set();
   const btn = document.getElementById('selectionModeBtn');
   btn.classList.toggle('active', enabled);
   btn.setAttribute('aria-pressed', String(enabled));
   document.getElementById('selectionBar').classList.toggle('hidden', !enabled);
   updateSelectionBar();
-  if (currentBoardId) renderColumns();
+  if (currentBookId) renderColumns();
 }
 
-function setTaskSelected(id, selected, card, checkbox) {
-  if (selected) selectedTaskIds.add(id); else selectedTaskIds.delete(id);
+function setTxnSelected(id, selected, card, checkbox) {
+  if (selected) selectedTxnIds.add(id); else selectedTxnIds.delete(id);
   card.classList.toggle('selected', selected);
   card.setAttribute('aria-pressed', String(selected));
   checkbox.checked = selected;
   updateSelectionBar();
 }
 
-function selectTasks(list) {
-  list.forEach(t => selectedTaskIds.add(t.id));
-  renderColumns();
-}
-
 function updateSelectionBar() {
-  const n = selectedTaskIds.size;
+  const n = selectedTxnIds.size;
   document.getElementById('selectionCount').textContent = n > 0
     ? `${n}件選択中`
-    : '削除するタスクをクリックして選択';
+    : '削除する取引をクリックして選択';
   document.getElementById('bulkDeleteBtn').disabled = n === 0;
   document.getElementById('clearSelectionBtn').disabled = n === 0;
 }
 
 async function handleBulkDelete() {
-  const ids = [...selectedTaskIds];
+  const ids = [...selectedTxnIds];
   if (!ids.length) return;
-  if (!confirm(`選択した${ids.length}件のタスクを削除しますか?この操作は取り消せません。`)) return;
+  if (!confirm(`選択した${ids.length}件の取引を削除しますか?この操作は取り消せません。`)) return;
   try {
-    await apiPost(`/api/boards/${currentBoardId}/tasks/bulk-delete`, { taskIds: ids });
+    await apiPost(`/api/books/${currentBookId}/transactions/bulk-delete`, { transactionIds: ids });
   } catch (err) {
     return;
   }
-  const deleted = new Set(ids);
-  tasks = tasks.filter(t => !deleted.has(t.id));
-  selectedTaskIds = new Set();
+  selectedTxnIds = new Set();
   updateSelectionBar();
   render();
 }
 
-// カードの期限表示。近い日は「今日」「明日」と書き、今年以外は年も付けて取り違えを防ぐ
-function formatDueLabel(isoDate) {
-  const [y, m, d] = isoDate.split('-').map(Number);
-  const due = new Date(y, m - 1, d);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const diffDays = Math.round((due - today) / 86400000);
-  if (diffDays === 0) return '今日まで';
-  if (diffDays === 1) return '明日まで';
-  if (diffDays === 2) return 'あさってまで';
-  const mm = String(m).padStart(2, '0');
-  const dd = String(d).padStart(2, '0');
-  return y === today.getFullYear() ? `${mm}/${dd}` : `${y}/${mm}/${dd}`;
+// --- 取引の追加・編集 ---
+
+// 新しい取引の日付の初期値。今月を見ているなら今日、ほかの月を見ているならその月の1日
+function defaultTxnDate() {
+  return currentMonth === currentMonthString() ? localDateString() : `${currentMonth}-01`;
 }
 
-function formatCreatedAt(isoInstant) {
-  const d = new Date(isoInstant);
-  if (Number.isNaN(d.getTime())) return '';
-  return localDateString(d).replaceAll('-', '/');
-}
-
-// toISOString()はUTC基準のため、日本時間の0〜9時に前日の日付になってしまう。ローカル日付で YYYY-MM-DD を作る
-function localDateString(d = new Date()) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
-function setupDropZone(section, list, statusId) {
-  section.addEventListener('dragover', (e) => {
-    if (e.dataTransfer.types.includes('application/x-column-id')) return;
-    e.preventDefault();
-    section.classList.add('drag-over');
-    // 手動並び替え以外のソート表示中は、ドロップ時に末尾へ追加するだけなのでプレビュー移動は行わない
-    if (currentSort !== 'manual') return;
-    const dragging = document.querySelector('.task-card.dragging');
-    if (!dragging) return;
-    list.querySelector('.empty-hint')?.remove();
-    const after = getDragAfterElement(list, e.clientY);
-    if (after == null) {
-      list.appendChild(dragging);
-    } else {
-      list.insertBefore(dragging, after);
-    }
+function renderCategoryOptions(selectedId) {
+  const select = document.getElementById('txnCategory');
+  select.innerHTML = '';
+  ['EXPENSE', 'INCOME'].forEach(type => {
+    const group = document.createElement('optgroup');
+    group.label = TYPE_LABEL[type];
+    categories.filter(c => c.type === type).forEach(c => {
+      const option = document.createElement('option');
+      option.value = c.id;
+      option.textContent = c.name;
+      group.appendChild(option);
+    });
+    if (group.children.length) select.appendChild(group);
   });
-  section.addEventListener('dragleave', (e) => {
-    if (!section.contains(e.relatedTarget)) section.classList.remove('drag-over');
-  });
-  section.addEventListener('drop', async (e) => {
-    if (e.dataTransfer.types.includes('application/x-column-id')) return;
-    e.preventDefault();
-    section.classList.remove('drag-over');
-    const id = e.dataTransfer.getData('text/plain');
-    const task = tasks.find(t => t.id === id);
-    if (!task) return;
-
-    let displayOrder;
-    if (currentSort === 'manual') {
-      const cardEls = [...list.querySelectorAll('.task-card')];
-      displayOrder = cardEls.findIndex(el => el.dataset.id === id);
-      if (displayOrder === -1) displayOrder = cardEls.length;
-    } else {
-      displayOrder = tasks.filter(t => t.status === statusId && t.id !== id).length;
-    }
-
-    try {
-      await apiPatch(`/api/tasks/${id}/move`, { columnId: statusId, displayOrder });
-    } catch (err) {
-      render();
-      return;
-    }
-    try {
-      await refreshTasks();
-    } catch (err) { /* エラーはバナー表示済み。既存の表示のまま */ }
-    render();
-  });
+  const fallback = categories.find(c => c.type === 'EXPENSE') || categories[0];
+  select.value = selectedId && categoryById(selectedId) ? selectedId : (fallback ? fallback.id : '');
 }
 
-function getDragAfterElement(container, y) {
-  const elements = [...container.querySelectorAll('.task-card:not(.dragging)')];
-  return elements.reduce((closest, child) => {
-    const box = child.getBoundingClientRect();
-    const offset = y - box.top - box.height / 2;
-    if (offset < 0 && offset > closest.offset) {
-      return { offset, element: child };
-    }
-    return closest;
-  }, { offset: Number.NEGATIVE_INFINITY, element: null }).element;
-}
-
-function openModal(task) {
-  editingId = task ? task.id : null;
-  document.getElementById('modalTitle').textContent = task ? 'タスク編集' : 'タスク追加';
-  const createdEl = document.getElementById('taskCreatedAt');
-  if (task && task.createdAt) {
-    createdEl.textContent = `作成日: ${formatCreatedAt(task.createdAt)}`;
+function openModal(txn) {
+  editingId = txn ? txn.id : null;
+  document.getElementById('modalTitle').textContent = txn ? '取引を編集' : '取引を追加';
+  const createdEl = document.getElementById('txnCreatedAt');
+  if (txn && txn.createdAt) {
+    createdEl.textContent = `登録日: ${formatCreatedAt(txn.createdAt)}`;
     createdEl.classList.remove('hidden');
   } else {
     createdEl.textContent = '';
     createdEl.classList.add('hidden');
   }
-  document.getElementById('taskId').value = task ? task.id : '';
-  document.getElementById('taskTitle').value = task ? task.title : '';
-  document.getElementById('taskDesc').value = task ? (task.description || '') : '';
-  document.getElementById('taskDue').value = task ? (task.dueDate || '') : '';
-  document.getElementById('taskPriority').value = task ? task.priority : 'mid';
-  const statusSelect = document.getElementById('taskStatus');
-  statusSelect.innerHTML = columns.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('');
-  statusSelect.value = task ? task.status : columns[0].id;
-  document.getElementById('taskCategory').value = task ? (task.categories || []).join(', ') : '';
-  document.getElementById('taskCompleted').checked = task ? !!task.completed : false;
-  document.getElementById('deleteTaskBtn').classList.toggle('hidden', !task);
-  currentChecklist = task ? (task.checklist || []).map(i => ({ ...i })) : [];
-  document.getElementById('checklistNewItem').value = '';
-  renderChecklist();
+  document.getElementById('txnAmount').value = txn ? String(txn.amount) : '';
+  document.getElementById('txnDate').value = txn ? txn.date : defaultTxnDate();
+  renderCategoryOptions(txn ? txn.categoryId : null);
+  document.getElementById('txnMemo').value = txn ? txn.memo : '';
+  document.getElementById('txnTags').value = txn ? txn.tags.join(', ') : '';
+  document.getElementById('txnError').classList.add('hidden');
+  document.getElementById('deleteTxnBtn').classList.toggle('hidden', !txn);
   document.getElementById('modalOverlay').classList.remove('hidden');
-  document.getElementById('taskTitle').focus();
+  document.getElementById('txnAmount').focus();
 }
 
 function closeModal() {
   document.getElementById('modalOverlay').classList.add('hidden');
   editingId = null;
-  currentChecklist = [];
 }
 
-function renderChecklist() {
-  const list = document.getElementById('checklistItems');
-  list.innerHTML = '';
-
-  currentChecklist.forEach(item => {
-    const li = document.createElement('li');
-    li.className = 'checklist-item';
-    li.innerHTML = `
-      <input type="checkbox" class="checklist-check">
-      <span class="checklist-text"></span>
-      <button type="button" class="checklist-remove" aria-label="削除">×</button>
-    `;
-    const checkbox = li.querySelector('.checklist-check');
-    checkbox.checked = item.done;
-    li.classList.toggle('done', item.done);
-    li.querySelector('.checklist-text').textContent = item.text;
-
-    checkbox.addEventListener('change', () => {
-      item.done = checkbox.checked;
-      li.classList.toggle('done', item.done);
-      updateChecklistProgress();
-    });
-    li.querySelector('.checklist-remove').addEventListener('click', () => {
-      currentChecklist = currentChecklist.filter(i => i.id !== item.id);
-      renderChecklist();
-    });
-
-    list.appendChild(li);
-  });
-
-  updateChecklistProgress();
-}
-
-function updateChecklistProgress() {
-  const progress = document.getElementById('checklistProgress');
-  if (!currentChecklist.length) {
-    progress.textContent = '';
-    return;
-  }
-  const done = currentChecklist.filter(i => i.done).length;
-  progress.textContent = `${done}/${currentChecklist.length}`;
-}
-
-function addChecklistItem() {
-  const input = document.getElementById('checklistNewItem');
-  const text = input.value.trim();
-  if (!text) return;
-  currentChecklist.push({ id: uid(), text, done: false });
-  input.value = '';
-  renderChecklist();
-  input.focus();
-}
-
-function uid() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+function showTxnError(message, fieldId) {
+  const errorEl = document.getElementById('txnError');
+  errorEl.textContent = message;
+  errorEl.classList.remove('hidden');
+  if (fieldId) document.getElementById(fieldId).focus();
 }
 
 async function handleSubmit(e) {
   e.preventDefault();
-  const title = document.getElementById('taskTitle').value.trim();
-  if (!title) return;
+  document.getElementById('txnError').classList.add('hidden');
+  // 「1,280」のようにカンマ付きで貼り付けられても受け付ける
+  const amountText = document.getElementById('txnAmount').value.replaceAll(',', '').trim();
+  const amount = Number(amountText);
+  if (!amountText || !Number.isInteger(amount) || amount < 1 || amount > MAX_AMOUNT) {
+    showTxnError('金額は1〜99,999,999の整数(円)で入力してください。', 'txnAmount');
+    return;
+  }
+  const date = document.getElementById('txnDate').value;
+  if (!date) {
+    showTxnError('日付を入力してください。', 'txnDate');
+    return;
+  }
+  const categoryId = document.getElementById('txnCategory').value;
+  if (!categoryId) {
+    showTxnError('カテゴリを選んでください。', 'txnCategory');
+    return;
+  }
 
-  const data = {
-    title,
-    description: document.getElementById('taskDesc').value.trim(),
-    dueDate: document.getElementById('taskDue').value,
-    priority: document.getElementById('taskPriority').value,
-    categories: parseCategories(document.getElementById('taskCategory').value),
-    checklist: currentChecklist,
-    completed: document.getElementById('taskCompleted').checked,
+  const payload = {
+    amount,
+    date,
+    categoryId,
+    memo: document.getElementById('txnMemo').value.trim(),
+    tags: parseTags(document.getElementById('txnTags').value),
   };
-  const selectedStatus = document.getElementById('taskStatus').value || (columns[0] ? columns[0].id : '');
 
   try {
     if (editingId) {
-      const updated = await apiPut(`/api/tasks/${editingId}`, toApiTaskPayload(data, selectedStatus));
-      const idx = tasks.findIndex(t => t.id === editingId);
-      if (idx !== -1) tasks[idx] = fromApiTask(updated);
+      await apiPut(`/api/transactions/${editingId}`, payload);
     } else {
-      const created = await apiPost(`/api/boards/${currentBoardId}/tasks`, toApiTaskPayload(data, selectedStatus));
-      tasks.push(fromApiTask(created));
+      await apiPost(`/api/books/${currentBookId}/transactions`, payload);
     }
   } catch (err) {
     return;
   }
 
   closeModal();
-  render();
-  checkDueNotifications();
+  // 別の月の日付で登録したら、登録した取引が見えるようにその月へ移る
+  const month = date.slice(0, 7);
+  if (month !== currentMonth) {
+    await changeMonth(month);
+  } else {
+    render();
+  }
 }
 
-function exportData() {
-  const board = boards.find(b => b.id === currentBoardId);
+async function handleDelete() {
+  if (!editingId) return;
+  if (!confirm('この取引を削除しますか?')) return;
+  try {
+    await apiDelete(`/api/transactions/${editingId}`);
+  } catch (err) {
+    return;
+  }
+  closeModal();
+  render();
+}
+
+// --- エクスポート・インポート ---
+
+async function exportData() {
+  const book = books.find(b => b.id === currentBookId);
+  let all;
+  try {
+    all = await apiGet(`/api/books/${currentBookId}/transactions`);
+  } catch (err) {
+    return;
+  }
   const payload = {
-    app: 'task-manager-app',
-    version: 2,
-    board: board ? board.name : undefined,
+    app: 'finance-manager-app',
+    version: 1,
+    book: book ? book.name : undefined,
     exportedAt: new Date().toISOString(),
-    columns,
-    tasks,
+    categories,
+    transactions: all.map(t => ({
+      categoryId: t.categoryId,
+      amount: t.amount,
+      date: t.date,
+      memo: t.memo || '',
+      tags: t.tags || [],
+    })),
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `task-manager-backup-${localDateString()}.json`;
+  a.download = `finance-manager-backup-${localDateString()}.json`;
   document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+function isValidImportTxn(t) {
+  return t
+    && Number.isInteger(t.amount) && t.amount >= 1 && t.amount <= MAX_AMOUNT
+    && typeof t.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.date);
 }
 
 function handleImportFile(e) {
@@ -904,133 +872,119 @@ function handleImportFile(e) {
       alert('ファイルの読み込みに失敗しました。正しいJSONファイルを選択してください。');
       return;
     }
-    if (!Array.isArray(data.tasks) || !Array.isArray(data.columns) || !data.columns.length) {
-      alert('このファイルはタスク管理アプリのバックアップ形式ではないようです。');
+    if (!data || !Array.isArray(data.categories) || !data.categories.length || !Array.isArray(data.transactions)) {
+      alert('このファイルは収支管理アプリのバックアップ形式ではないようです。');
       return;
     }
-    if (!confirm('インポートすると現在のボードのタスクと列がすべて置き換わります。よろしいですか?')) return;
+    const invalidCount = data.transactions.filter(t => !isValidImportTxn(t)).length;
+    if (invalidCount > 0) {
+      alert(`金額または日付が正しくない取引が${invalidCount}件あるため、インポートを中止しました。`);
+      return;
+    }
+    if (!confirm(`インポートすると、この家計簿のカテゴリと取引(${data.transactions.length}件)がすべて置き換わります。よろしいですか?`)) return;
 
-    const importColumns = data.columns.map((c, idx) => ({
-      id: c && c.id != null ? String(c.id) : `col-${idx}`,
-      name: c && c.name ? String(c.name) : '無題の列',
-      done: !!(c && c.done),
+    const importCategories = data.categories.map((c, idx) => ({
+      id: c && c.id != null ? String(c.id) : `cat-${idx}`,
+      name: c && c.name ? String(c.name) : '無題のカテゴリ',
+      type: c && c.type === 'INCOME' ? 'INCOME' : 'EXPENSE',
     }));
-    const validColumnIds = new Set(importColumns.map(c => c.id));
-    const importTasks = data.tasks.map(t => ({
-      columnId: validColumnIds.has(t && t.status) ? t.status : importColumns[0].id,
-      title: t && t.title ? String(t.title) : '無題のタスク',
-      description: t && t.description ? String(t.description) : '',
-      dueDate: t && typeof t.dueDate === 'string' && t.dueDate ? t.dueDate : null,
-      priority: PRIORITY_LABEL[t && t.priority] ? String(t.priority).toUpperCase() : 'MID',
-      categories: [...new Set((Array.isArray(t && t.categories) ? t.categories : [])
-        .filter(c => typeof c === 'string' && c.trim())
-        .map(c => c.trim()))],
-      checklist: (Array.isArray(t && t.checklist) ? t.checklist : [])
-        .filter(i => i && typeof i.text === 'string' && i.text.trim())
-        .map(i => ({ text: String(i.text), done: !!i.done })),
-      completed: !!(t && t.completed),
+    const validCategoryIds = new Set(importCategories.map(c => c.id));
+    const importTxns = data.transactions.map(t => ({
+      categoryId: validCategoryIds.has(t.categoryId) ? t.categoryId : importCategories[0].id,
+      amount: t.amount,
+      date: t.date,
+      memo: t.memo ? String(t.memo) : '',
+      tags: [...new Set((Array.isArray(t.tags) ? t.tags : [])
+        .filter(tag => typeof tag === 'string' && tag.trim())
+        .map(tag => tag.trim()))],
     }));
 
     try {
-      await apiPut(`/api/boards/${currentBoardId}/import`, { columns: importColumns, tasks: importTasks });
-      await loadBoardData(currentBoardId);
+      await apiPut(`/api/books/${currentBookId}/import`, { categories: importCategories, transactions: importTxns });
+      await refreshCategories();
     } catch (err) {
       return;
     }
-    render();
-    checkDueNotifications();
+    await render();
     alert('インポートが完了しました。');
   };
   reader.onerror = () => alert('ファイルの読み込みに失敗しました。');
   reader.readAsText(file);
 }
 
-async function handleDelete() {
-  if (!editingId) return;
-  if (!confirm('このタスクを削除しますか?')) return;
-  try {
-    await apiDelete(`/api/tasks/${editingId}`);
-  } catch (err) {
-    return;
-  }
-  tasks = tasks.filter(t => t.id !== editingId);
-  closeModal();
-  render();
+// --- 家計簿の切り替え ---
+
+function renderBookSelect() {
+  const select = document.getElementById('bookSelect');
+  select.innerHTML = books.map(b => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join('');
+  select.value = currentBookId;
+  document.getElementById('deleteBookBtn').disabled = books.length <= 1;
 }
 
-// --- ボード切り替え ---
-
-function renderBoardSelect() {
-  const select = document.getElementById('boardSelect');
-  select.innerHTML = boards.map(b => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join('');
-  select.value = currentBoardId;
-  document.getElementById('deleteBoardBtn').disabled = boards.length <= 1;
-}
-
-async function switchBoard(id) {
-  if (!boards.some(b => b.id === id) || id === currentBoardId) {
-    renderBoardSelect();
+async function switchBook(id) {
+  if (!books.some(b => b.id === id) || id === currentBookId) {
+    renderBookSelect();
     return;
   }
   try {
-    await loadBoardData(id);
+    await loadBookData(id);
   } catch (err) {
-    renderBoardSelect();
+    renderBookSelect();
     return;
   }
   setSelectionMode(false);
-  currentSort = 'manual';
-  document.getElementById('sortSelect').value = 'manual';
   document.getElementById('searchInput').value = '';
-  renderBoardSelect();
+  document.getElementById('filterTag').value = '';
+  document.getElementById('minAmount').value = '';
+  document.getElementById('maxAmount').value = '';
+  renderBookSelect();
   render();
-  checkDueNotifications();
 }
 
-async function addBoard() {
-  const name = prompt('新しいボード名を入力してください', '新しいボード');
+async function addBook() {
+  const name = prompt('新しい家計簿の名前を入力してください', '新しい家計簿');
   if (name == null) return;
   const trimmed = name.trim();
   if (!trimmed) return;
-  let board;
+  let book;
   try {
-    board = await apiPost('/api/boards', { name: trimmed });
-    await createDefaultColumns(board.id);
+    // 初期カテゴリはサーバー側で一緒に作られる
+    book = await apiPost('/api/books', { name: trimmed });
   } catch (err) {
     return;
   }
-  boards.push(board);
-  await switchBoard(board.id);
+  books.push(book);
+  await switchBook(book.id);
 }
 
-async function renameBoard() {
-  const board = boards.find(b => b.id === currentBoardId);
-  if (!board) return;
-  const name = prompt('ボード名を変更', board.name);
+async function renameBook() {
+  const book = books.find(b => b.id === currentBookId);
+  if (!book) return;
+  const name = prompt('家計簿の名前を変更', book.name);
   if (name == null) return;
   const trimmed = name.trim();
   if (!trimmed) return;
   try {
-    const updated = await apiPut(`/api/boards/${currentBoardId}`, { name: trimmed });
-    board.name = updated.name;
+    const updated = await apiPut(`/api/books/${currentBookId}`, { name: trimmed });
+    book.name = updated.name;
   } catch (err) {
     return;
   }
-  renderBoardSelect();
+  renderBookSelect();
 }
 
-async function deleteBoard() {
-  if (boards.length <= 1) { alert('最後のボードは削除できません。'); return; }
-  const board = boards.find(b => b.id === currentBoardId);
-  if (!board) return;
-  if (!confirm(`ボード「${board.name}」を削除しますか?このボードのタスクと列もすべて削除されます。`)) return;
+async function deleteBook() {
+  if (books.length <= 1) { alert('最後の家計簿は削除できません。'); return; }
+  const book = books.find(b => b.id === currentBookId);
+  if (!book) return;
+  if (!confirm(`家計簿「${book.name}」を削除しますか?この家計簿のカテゴリと取引もすべて削除されます。`)) return;
   try {
-    await apiDelete(`/api/boards/${currentBoardId}`);
+    await apiDelete(`/api/books/${currentBookId}`);
   } catch (err) {
     return;
   }
-  boards = boards.filter(b => b.id !== currentBoardId);
-  await switchBoard(boards[0].id);
+  books = books.filter(b => b.id !== currentBookId);
+  await switchBook(books[0].id);
 }
 
 // --- テーマ(ライト/ダーク)手動切り替え ---
@@ -1067,64 +1021,6 @@ function cycleTheme() {
   applyTheme(next);
 }
 
-// --- 期限リマインダー(通知) ---
-
-function updateNotifyBtn() {
-  const btn = document.getElementById('notifyToggleBtn');
-  if (!('Notification' in window)) {
-    btn.disabled = true;
-    btn.textContent = '🔔 通知非対応';
-    return;
-  }
-  const enabled = localStorage.getItem(NOTIFY_KEY) === 'true' && Notification.permission === 'granted';
-  btn.textContent = enabled ? '🔔 期限通知ON' : '🔕 期限通知OFF';
-  btn.classList.toggle('active', enabled);
-}
-
-function toggleNotify() {
-  if (!('Notification' in window)) return;
-  const enabled = localStorage.getItem(NOTIFY_KEY) === 'true' && Notification.permission === 'granted';
-  if (enabled) {
-    localStorage.setItem(NOTIFY_KEY, 'false');
-    updateNotifyBtn();
-    return;
-  }
-  Notification.requestPermission().then(perm => {
-    if (perm === 'granted') {
-      localStorage.setItem(NOTIFY_KEY, 'true');
-      updateNotifyBtn();
-      checkDueNotifications(true);
-    } else {
-      alert('通知が許可されませんでした。ブラウザの通知設定を確認してください。');
-      updateNotifyBtn();
-    }
-  });
-}
-
-function checkDueNotifications(force) {
-  if (!('Notification' in window) || Notification.permission !== 'granted') return;
-  if (localStorage.getItem(NOTIFY_KEY) !== 'true') return;
-  const todayStr = localDateString();
-  if (!force && localStorage.getItem(LAST_NOTIFIED_KEY) === todayStr) return;
-  const dueTasks = tasks.filter(t => {
-    const col = columns.find(c => c.id === t.status);
-    if (!t.dueDate || (col && col.done)) return false;
-    return t.dueDate <= todayStr;
-  });
-  if (dueTasks.length) {
-    try {
-      new Notification('タスク管理', { body: `本日期限・期限超過のタスクが${dueTasks.length}件あります。` });
-    } catch (e) {
-      console.error('Failed to show notification', e);
-    }
-  }
-  try {
-    localStorage.setItem(LAST_NOTIFIED_KEY, todayStr);
-  } catch (e) {
-    console.error('Failed to save notification date to localStorage', e);
-  }
-}
-
 // --- ログイン/ログアウト ---
 
 async function checkAuth() {
@@ -1138,16 +1034,20 @@ async function checkAuth() {
 }
 
 function setLoggedInUiVisible(visible) {
-  document.getElementById('boardSwitcher').classList.toggle('hidden', !visible);
+  document.getElementById('bookSwitcher').classList.toggle('hidden', !visible);
   document.getElementById('headerActions').classList.toggle('hidden', !visible);
+  document.getElementById('monthBar').classList.toggle('hidden', !visible);
+  document.getElementById('fabAddTxnBtn').classList.toggle('hidden', !visible);
 }
 
 function showLoggedOutState() {
-  boards = [];
-  tasks = [];
-  visibleTasks = [];
-  columns = [];
-  currentBoardId = null;
+  books = [];
+  categories = [];
+  monthTxns = [];
+  visibleTxns = [];
+  summary = null;
+  currentBookId = null;
+  currentMonth = currentMonthString();
   setSelectionMode(false);
   setLoggedInUiVisible(false);
   updateFilterBar();
@@ -1155,26 +1055,26 @@ function showLoggedOutState() {
   board.innerHTML = '';
   const hint = document.createElement('div');
   hint.className = 'empty-hint';
-  hint.textContent = 'ログインするとボードが表示されます。';
+  hint.textContent = 'ログインすると家計簿が表示されます。';
   board.appendChild(hint);
 }
 
 async function loadApp() {
   setLoggedInUiVisible(true);
   try {
-    boards = await apiGet('/api/boards');
-    if (!boards.length) {
-      // 「ボードが無ければ作る」をフロントで判定すると、複数タブや二重ログインで同時に走ったときに
-      // マイボードが重複して作られるため、判定と作成はサーバー側でまとめて行う
-      boards = await apiPost('/api/boards/ensure-default', {});
+    books = await apiGet('/api/books');
+    if (!books.length) {
+      // 「家計簿が無ければ作る」をフロントで判定すると、複数タブや二重ログインで同時に走ったときに
+      // 重複して作られるため、判定と作成はサーバー側でまとめて行う
+      books = await apiPost('/api/books/ensure-default', {});
     }
-    await loadBoardData(loadCurrentBoardId());
+    await loadBookData(loadCurrentBookId());
   } catch (err) {
     return;
   }
-  renderBoardSelect();
+  renderBookSelect();
+  renderMonthBar();
   render();
-  checkDueNotifications();
 }
 
 function renderAuthStatus() {
@@ -1405,7 +1305,16 @@ function closeMoreMenu() {
   document.getElementById('moreMenu').removeAttribute('open');
 }
 
-document.getElementById('addTaskBtn').addEventListener('click', () => openModal(null));
+function scheduleRender() {
+  clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(render, 300);
+}
+
+document.getElementById('addTxnBtn').addEventListener('click', () => openModal(null));
+document.getElementById('fabAddTxnBtn').addEventListener('click', () => openModal(null));
+document.getElementById('prevMonthBtn').addEventListener('click', () => changeMonth(shiftMonth(currentMonth, -1)));
+document.getElementById('nextMonthBtn').addEventListener('click', () => changeMonth(shiftMonth(currentMonth, 1)));
+document.getElementById('thisMonthBtn').addEventListener('click', () => changeMonth(currentMonthString()));
 document.getElementById('exportBtn').addEventListener('click', () => {
   closeMoreMenu();
   exportData();
@@ -1421,43 +1330,35 @@ document.addEventListener('click', (e) => {
 document.getElementById('clearFiltersBtn').addEventListener('click', clearFilters);
 document.getElementById('importFile').addEventListener('change', handleImportFile);
 document.getElementById('cancelBtn').addEventListener('click', closeModal);
-document.getElementById('taskForm').addEventListener('submit', handleSubmit);
-document.getElementById('deleteTaskBtn').addEventListener('click', handleDelete);
-document.getElementById('checklistAddBtn').addEventListener('click', addChecklistItem);
-document.getElementById('checklistNewItem').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    addChecklistItem();
-  }
-});
+document.getElementById('txnForm').addEventListener('submit', handleSubmit);
+document.getElementById('deleteTxnBtn').addEventListener('click', handleDelete);
 document.getElementById('modalOverlay').addEventListener('click', (e) => {
   if (e.target.id === 'modalOverlay') closeModal();
 });
-document.getElementById('filterCategory').addEventListener('change', render);
-document.getElementById('filterPriority').addEventListener('change', render);
-document.getElementById('searchInput').addEventListener('input', () => {
-  clearTimeout(searchDebounceTimer);
-  searchDebounceTimer = setTimeout(render, 300);
-});
+document.getElementById('filterTag').addEventListener('change', render);
+document.getElementById('searchInput').addEventListener('input', scheduleRender);
+document.getElementById('minAmount').addEventListener('input', scheduleRender);
+document.getElementById('maxAmount').addEventListener('input', scheduleRender);
 document.getElementById('sortSelect').addEventListener('change', (e) => {
   currentSort = e.target.value;
   render();
 });
 document.getElementById('selectionModeBtn').addEventListener('click', () => setSelectionMode(!selectionMode));
 document.getElementById('exitSelectionBtn').addEventListener('click', () => setSelectionMode(false));
-document.getElementById('selectAllVisibleBtn').addEventListener('click', () => selectTasks(visibleTasks));
-document.getElementById('selectCompletedBtn').addEventListener('click', () => selectTasks(visibleTasks.filter(t => t.completed)));
+document.getElementById('selectAllVisibleBtn').addEventListener('click', () => {
+  visibleTxns.forEach(t => selectedTxnIds.add(t.id));
+  renderColumns();
+});
 document.getElementById('clearSelectionBtn').addEventListener('click', () => {
-  selectedTaskIds = new Set();
+  selectedTxnIds = new Set();
   renderColumns();
 });
 document.getElementById('bulkDeleteBtn').addEventListener('click', handleBulkDelete);
 document.getElementById('themeToggleBtn').addEventListener('click', cycleTheme);
-document.getElementById('notifyToggleBtn').addEventListener('click', toggleNotify);
-document.getElementById('boardSelect').addEventListener('change', (e) => switchBoard(e.target.value));
-document.getElementById('addBoardBtn').addEventListener('click', addBoard);
-document.getElementById('renameBoardBtn').addEventListener('click', renameBoard);
-document.getElementById('deleteBoardBtn').addEventListener('click', deleteBoard);
+document.getElementById('bookSelect').addEventListener('change', (e) => switchBook(e.target.value));
+document.getElementById('addBookBtn').addEventListener('click', addBook);
+document.getElementById('renameBookBtn').addEventListener('click', renameBook);
+document.getElementById('deleteBookBtn').addEventListener('click', deleteBook);
 document.getElementById('apiErrorDismiss').addEventListener('click', clearApiError);
 document.querySelectorAll('.password-toggle').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -1501,7 +1402,7 @@ document.addEventListener('keydown', (e) => {
   }
   // 文字入力中やモーダル表示中は横取りしない
   const typing = e.target.closest('input, textarea, select, [contenteditable="true"]');
-  if (!typing && !anyModalOpen && currentBoardId && !e.ctrlKey && !e.metaKey && !e.altKey) {
+  if (!typing && !anyModalOpen && currentBookId && !e.ctrlKey && !e.metaKey && !e.altKey) {
     if (e.key === 'n' || e.key === 'N') {
       e.preventDefault();
       openModal(null);
@@ -1536,7 +1437,7 @@ function warnIfOpenedAsFile() {
   document.body.innerHTML = `
     <div style="max-width: 560px; margin: 15vh auto; padding: 24px 28px; background: #fff3cd; color: #664d03; border: 1px solid #ffe69c; border-radius: 8px; font-family: sans-serif; line-height: 1.7;">
       <h1 style="font-size: 1.1rem; margin: 0 0 10px;">このページでは正しく動作しません</h1>
-      <p style="margin: 0 0 10px;">このアプリはバックエンドと同じオリジンで開く必要があります。ファイルを直接開くと、ログインしてもセッションが保持されず、ボードが表示されません。</p>
+      <p style="margin: 0 0 10px;">このアプリはバックエンドと同じオリジンで開く必要があります。ファイルを直接開くと、ログインしてもセッションが保持されず、家計簿が表示されません。</p>
       <p style="margin: 0;">バックエンドを起動した状態で <a href="${correctUrl}" style="color: #0c66e4; font-weight: 700;">${correctUrl}</a> を開いてください。</p>
     </div>
   `;
@@ -1546,7 +1447,6 @@ function warnIfOpenedAsFile() {
 async function init() {
   if (warnIfOpenedAsFile()) return;
   applyTheme(loadTheme());
-  updateNotifyBtn();
   await checkAuth();
   if (currentUser) {
     await loadApp();

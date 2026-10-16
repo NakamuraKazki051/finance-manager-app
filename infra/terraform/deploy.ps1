@@ -23,7 +23,7 @@ $url = & $tf output -raw app_url 2>$null
 if (-not $bucket -or -not $instance) { throw '環境がありません。先に ./up.ps1 を実行してください。' }
 
 # 1. ビルド（Java 25 / Maven はこのPCの ~/tools にあるもの。テストは PR のときに流すので、ここでは省く）
-$jar = "$repo\backend\target\task-manager-api-0.1.0.jar"
+$jar = "$repo\backend\target\finance-manager-api-0.1.0.jar"
 $frontendFiles = 'index.html', 'style.css', 'app.js'
 if (-not $SkipBuild) {
     Write-Host 'ビルドしています（1〜2分）'
@@ -47,7 +47,7 @@ foreach ($f in $frontendFiles) {
 # （EC2 にはバケットの一覧を見る権限を付けていないので、--recursive は使わず1ファイルずつ取る）
 $commands = @(
     'set -e',
-    'cd /opt/task-manager',
+    'cd /opt/finance-manager',
     "aws s3 cp --region $region --only-show-errors s3://$bucket/app.jar app.jar.new",
     'mv app.jar.new app.jar'
 ) + ($frontendFiles | ForEach-Object { "aws s3 cp --region $region --only-show-errors s3://$bucket/frontend/$_ frontend/$_" }) + @(
@@ -55,7 +55,7 @@ $commands = @(
     'for i in $(seq 1 36); do code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost/api/boards); if [ "$code" = 401 ]; then echo backend-ready; exit 0; fi; sleep 5; done',
     'echo backend-not-ready; docker compose logs --tail 80 app; exit 1'
 )
-$params = Join-Path ([IO.Path]::GetTempPath()) 'task-manager-deploy.json'
+$params = Join-Path ([IO.Path]::GetTempPath()) 'finance-manager-deploy.json'
 # aws CLI は file:// を Windows の既定の文字コード（Shift-JIS）で読むので、日本語が入っても読めるように \uXXXX にしておく
 @{ commands = $commands } | ConvertTo-Json -EscapeHandling EscapeNonAscii | Set-Content $params -Encoding utf8NoBOM
 

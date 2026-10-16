@@ -9,7 +9,7 @@ param([switch]$SkipDeploy)
 $ErrorActionPreference = 'Stop'
 $tf = "$env:USERPROFILE\tools\terraform\terraform.exe"
 $region = 'ap-northeast-1'
-$db = 'task-manager-app-db'
+$db = 'finance-manager-app-db'
 Set-Location $PSScriptRoot
 
 aws sts get-caller-identity --output text *> $null

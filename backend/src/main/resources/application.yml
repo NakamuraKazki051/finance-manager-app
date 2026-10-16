@@ -1,11 +1,11 @@
 spring:
   application:
-    name: task-manager-api
+    name: finance-manager-api
   datasource:
-    url: jdbc:postgresql://localhost:5432/taskmanager
+    url: jdbc:postgresql://localhost:5433/financemanager
     driver-class-name: org.postgresql.Driver
-    username: taskmanager
-    password: taskmanager
+    username: financemanager
+    password: financemanager
   jpa:
     hibernate:
       ddl-auto: update

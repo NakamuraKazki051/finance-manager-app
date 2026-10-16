@@ -1,5 +1,5 @@
 // E2E パフォーマンステスト（k6）
-// ブラウザでの操作と同じ順番で、画面の表示 → ログイン → タスクの作成・検索・移動・完了・編集・削除 を繰り返す。
+// ブラウザでの操作と同じ順番で、画面の表示 → ログイン → 取引の登録・月の集計・検索・カテゴリ付け替え・編集・削除 を繰り返す。
 // 直接は実行せず、infra/terraform/perf.ps1 から実行する（URL の受け渡しと、テストデータの後片付けをするため）。
 import http from 'k6/http';
 import { check, group, sleep } from 'k6';
@@ -18,9 +18,9 @@ const PASSWORD = 'perf-test-password';
 const ENDPOINTS = [
     '画面 /', '画面 style.css', '画面 app.js',
     'POST /api/users/register', 'POST /api/auth/login', 'GET /api/auth/me',
-    'POST /api/boards/ensure-default', 'GET /api/boards/{id}/columns', 'GET /api/boards/{id}/tasks',
-    'POST /api/boards/{id}/tasks', 'GET /api/boards/{id}/tasks?q=', 'PATCH /api/tasks/{id}/move',
-    'PATCH /api/tasks/{id}/complete', 'PUT /api/tasks/{id}', 'DELETE /api/tasks/{id}',
+    'POST /api/books/ensure-default', 'GET /api/books/{id}/categories', 'GET /api/books/{id}/transactions',
+    'GET /api/books/{id}/summary', 'POST /api/books/{id}/transactions', 'GET /api/books/{id}/transactions?q=',
+    'PATCH /api/transactions/{id}/move', 'PUT /api/transactions/{id}', 'DELETE /api/transactions/{id}',
 ];
 
 // 目安（t3.micro・メモリ1GB の環境で、普段使いに困らない速さ）。超えたらテストは失敗扱い
@@ -67,8 +67,8 @@ function ok(res, label, status = 200) {
 
 // VU（仮想ユーザー）ごとに1回だけ、アカウントを作ってログインする。Cookie は VU ごとに保持される
 let loggedIn = false;
-let boardId;
-let columnIds;
+let bookId;
+let categoryIds;
 
 function login() {
     const email = `${EMAIL_PREFIX}${RUN_ID}-${__VU}${EMAIL_DOMAIN}`;
@@ -91,44 +91,47 @@ export default function () {
         }
     }
 
-    group('ボードを開く', () => {
+    // 画面と同じく、今月の取引と集計を表示する
+    const month = new Date().toISOString().slice(0, 7);
+
+    group('家計簿を開く', () => {
         ok(api('GET', '/api/auth/me', undefined, 'GET /api/auth/me'), 'ログイン中のユーザー');
-        const boards = api('POST', '/api/boards/ensure-default', undefined, 'POST /api/boards/ensure-default');
-        if (ok(boards, 'ボード一覧')) {
-            boardId = boards.json()[0].id;
+        const books = api('POST', '/api/books/ensure-default', undefined, 'POST /api/books/ensure-default');
+        if (ok(books, '家計簿一覧')) {
+            bookId = books.json()[0].id;
         }
-        const columns = api('GET', `/api/boards/${boardId}/columns`, undefined, 'GET /api/boards/{id}/columns');
-        if (ok(columns, '列一覧')) {
-            columnIds = columns.json().map((c) => c.id);
+        const categories = api('GET', `/api/books/${bookId}/categories`, undefined, 'GET /api/books/{id}/categories');
+        if (ok(categories, 'カテゴリ一覧')) {
+            categoryIds = categories.json().map((c) => c.id);
         }
-        ok(api('GET', `/api/boards/${boardId}/tasks?sort=manual`, undefined, 'GET /api/boards/{id}/tasks'), 'タスク一覧');
+        ok(api('GET', `/api/books/${bookId}/transactions?month=${month}&sort=date`, undefined, 'GET /api/books/{id}/transactions'), '取引一覧');
+        ok(api('GET', `/api/books/${bookId}/summary?month=${month}`, undefined, 'GET /api/books/{id}/summary'), '月の集計');
     });
-    if (!boardId || !columnIds || columnIds.length < 2) {
+    if (!bookId || !categoryIds || categoryIds.length < 2) {
         sleep(1);
         return;
     }
 
-    group('タスクを操作する', () => {
-        const task = {
-            title: `負荷テスト ${__VU}-${__ITER}`,
-            description: 'E2E パフォーマンステストで作成',
-            columnId: columnIds[0],
-            priority: 'HIGH',
-            categories: ['perf'],
-            checklist: [{ text: '確認する', done: false }],
+    group('取引を操作する', () => {
+        const txn = {
+            amount: 1000 + __ITER,
+            date: `${month}-01`,
+            categoryId: categoryIds[1],
+            memo: `負荷テスト ${__VU}-${__ITER}`,
+            tags: ['perf'],
         };
-        const created = api('POST', `/api/boards/${boardId}/tasks`, task, 'POST /api/boards/{id}/tasks');
-        if (!ok(created, 'タスク作成', 201)) {
+        const created = api('POST', `/api/books/${bookId}/transactions`, txn, 'POST /api/books/{id}/transactions');
+        if (!ok(created, '取引の登録', 201)) {
             return;
         }
-        const taskId = created.json().id;
+        const txnId = created.json().id;
+        ok(api('GET', `/api/books/${bookId}/summary?month=${month}`, undefined, 'GET /api/books/{id}/summary'), '登録後の集計');
         sleep(0.5);
-        ok(api('GET', `/api/boards/${boardId}/tasks?q=${encodeURIComponent('負荷テスト')}&sort=due`, undefined, 'GET /api/boards/{id}/tasks?q='), 'タスク検索');
-        ok(api('PATCH', `/api/tasks/${taskId}/move`, { columnId: columnIds[1], displayOrder: 0 }, 'PATCH /api/tasks/{id}/move'), 'タスク移動');
-        ok(api('PATCH', `/api/tasks/${taskId}/complete`, { completed: true }, 'PATCH /api/tasks/{id}/complete'), 'タスク完了');
-        ok(api('PUT', `/api/tasks/${taskId}`, { ...task, columnId: columnIds[1], title: `${task.title}（編集）`, completed: true }, 'PUT /api/tasks/{id}'), 'タスク編集');
+        ok(api('GET', `/api/books/${bookId}/transactions?month=${month}&q=${encodeURIComponent('負荷テスト')}&sort=amount`, undefined, 'GET /api/books/{id}/transactions?q='), '取引の検索');
+        ok(api('PATCH', `/api/transactions/${txnId}/move`, { categoryId: categoryIds[2] }, 'PATCH /api/transactions/{id}/move'), 'カテゴリの付け替え');
+        ok(api('PUT', `/api/transactions/${txnId}`, { ...txn, categoryId: categoryIds[2], amount: txn.amount + 1, memo: `${txn.memo}（編集）` }, 'PUT /api/transactions/{id}'), '取引の編集');
         sleep(0.5);
-        ok(api('DELETE', `/api/tasks/${taskId}`, undefined, 'DELETE /api/tasks/{id}'), 'タスク削除', 204);
+        ok(api('DELETE', `/api/transactions/${txnId}`, undefined, 'DELETE /api/transactions/{id}'), '取引の削除', 204);
     });
 
     sleep(1); // 人が画面を見ている時間
