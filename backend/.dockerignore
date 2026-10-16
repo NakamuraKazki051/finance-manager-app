@@ -1,0 +1,9 @@
+/.bundle
+/log/*
+/tmp/*
+/test
+/vendor/bundle
+/public/*
+/storage/*
+/config/master.key
+/.env*

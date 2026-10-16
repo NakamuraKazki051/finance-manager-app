@@ -1,6 +1,13 @@
-target/
-data/
-*.log
-.idea/
-*.iml
-.vscode/
+/.bundle
+/log/*
+!/log/.keep
+/tmp/*
+!/tmp/.keep
+/vendor/bundle
+/storage/*
+/config/master.key
+/.env*
+
+# ローカルで動かすときに frontend/out からコピーする画面のファイル(npm run build:rails)
+/public/*
+!/public/robots.txt

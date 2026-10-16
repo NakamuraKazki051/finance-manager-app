@@ -4,22 +4,32 @@
 
 [タスク管理アプリ（task-manager-app）](https://github.com/NakamuraKazki051/task-manager-app) をベースにしており、ログイン・カンバンの操作・データの出し入れ・AWSへのデプロイはそちらの仕組みを引き継いでいます。要件は [`docs/finance-app-requirements.md`](./docs/finance-app-requirements.md) を参照してください。今はフェーズ1（MVP: 取引の記録と月の集計）まで実装しています。
 
-フロントエンド（`index.html`）はビルド不要ですが、データはバックエンドAPI（`backend/`、Spring Boot + PostgreSQL）に保存するため、**利用前にバックエンドとDBコンテナを起動しておく必要があります**。
+| 層 | 技術 |
+|---|---|
+| フロントエンド | Next.js 16（App Router）+ React 19 + TypeScript。静的ファイルに書き出して配信 |
+| バックエンド | Ruby 4.0 + Ruby on Rails 8.1（API モード） |
+| データベース | MySQL 8.4（ローカルは Docker、AWS は RDS for MySQL の無料枠） |
 
 ## 起動手順
 
+Ruby 4.0（MSYS2 付き）と Node.js 24 が必要です（このPCでは `~/tools` に入っています。入れ方は [`backend/README.md`](./backend/README.md)）。
+
 ```
-docker compose up -d   # PostgreSQLコンテナ起動（リポジトリ直下で実行）
-cd backend
-mvn package
-java -Xmx256m -Xss512k -XX:MaxMetaspaceSize=128m -jar target/finance-manager-api-0.1.0.jar
+docker compose up -d           # MySQL コンテナを起動（リポジトリ直下で実行）
+cd frontend
+npm install
+npm run build:rails            # 画面を書き出して backend/public/ にコピー
+cd ../backend
+bundle install
+ruby bin/rails db:prepare      # DB を作ってマイグレーションを流す
+ruby bin/rails server -p 8080  # 画面と API を配信
 ```
 
-ビルドと起動には JDK 25 が必要です。バックエンドが `http://localhost:8080` で起動した状態で、ブラウザで **`http://localhost:8080/`** を開いてください（`mvn package` 時にフロントエンド一式がバックエンドの静的リソースとして同梱されます）。バックエンドに接続できない場合は画面上部に赤いエラーバナーが表示されます。詳細な起動方法・API仕様は [`backend/README.md`](./backend/README.md) を参照してください。
+ブラウザで **`http://localhost:8080/`** を開いてください。バックエンドに接続できない場合は画面上部に赤いエラーバナーが表示されます。API の仕様は [`backend/README.md`](./backend/README.md)、画面の構成は [`frontend/README.md`](./frontend/README.md) を参照してください。
 
-DBコンテナはホストの5433番を使うので、タスク管理アプリのDB（5432番）と同時に起動しておけます。アプリ本体はどちらも8080番を使うため、バックエンドは片方ずつ起動してください。DBのデータはアプリごとに別のボリュームに保存されるので混ざりません。
+画面と API は同じオリジン（`http://localhost:8080`）で配信します。ログインの Cookie を別のオリジンから送らないためです。画面だけを書き換えながら確認するときは、Rails を起動したまま `frontend` で `npm run dev` を使うと、`http://localhost:3000/` から `/api/` が Rails へ中継されます。
 
-**注意:** `index.html` を `file://` で直接（ダブルクリックで）開くと、ログイン機能が正しく動作しません。ブラウザはCookieのSameSite制限により、`file://` ページから `http://localhost:8080` への通信でセッションCookieを送信しないためです。必ず `http://localhost:8080/` 経由で開いてください。
+MySQL のコンテナは 3306 番を使い、メモリの少ないPC向けに Docker Desktop の起動と同時には立ち上がらない設定です（使うときに `docker compose up -d`）。
 
 ## 使い方
 
@@ -69,48 +79,45 @@ DBコンテナはホストの5433番を使うので、タスク管理アプリ�
 
 ## 技術構成
 
-フロントエンドは素のHTML / CSS / JavaScriptのみで、フレームワークやビルドツールは使用していません。
+```mermaid
+flowchart LR
+    browser["ブラウザ"] -->|"画面（静的ファイル）"| web["Rails の public/（ローカル）<br/>nginx（EC2）"]
+    browser -->|"/api/（JSON・Cookie）"| api["Rails API"]
+    api -->|"mysql2"| db[("MySQL 8.4")]
+```
 
-| ファイル | 役割 |
+| 場所 | 役割 |
 |---|---|
-| `index.html` | 画面構造 |
-| `style.css` | スタイル |
-| `app.js` | 表示中の月の取引・集計の取得と描画、バックエンドAPIとの通信 |
+| `frontend/` | Next.js の画面（詳しくは `frontend/README.md`） |
+| `backend/` | Rails API（Book / Category / Entry=取引）とテスト（詳しくは `backend/README.md`） |
+| `docker-compose.yml` | ローカル用の MySQL コンテナ |
 | `docs/finance-app-requirements.md` | 要件定義書 |
-| `backend/` | Spring Boot REST API（Book / Category / Transaction） |
-| `docker-compose.yml` | バックエンド用PostgreSQLコンテナ定義 |
-| `infra/terraform/` | AWS（EC2 + RDS）環境 |
+| `infra/terraform/` | AWS（EC2 + RDS for MySQL）環境 |
 | `perf/e2e-perf.js` | E2E パフォーマンステスト（k6） |
 
 ```mermaid
 erDiagram
     users ||--o{ books : "持つ"
     books ||--o{ categories : "持つ"
-    categories ||--o{ transactions : "分類する"
+    categories ||--o{ entries : "分類する"
     users { string id string email }
     books { string id string user_id string name }
-    categories { string id string book_id string name string type "INCOME / EXPENSE" int display_order }
-    transactions { string id string book_id string category_id bigint amount "円" date transaction_date string memo }
+    categories { string id string book_id string name string kind "INCOME / EXPENSE" int display_order }
+    entries { string id string book_id string category_id bigint amount "円" date transaction_date string memo json tags }
 ```
 
 ## データ保存について
 
-家計簿・カテゴリ・取引はすべてバックエンドAPI経由でPostgreSQLに保存されます（`docker-compose.yml`のDBコンテナ）。テーマと「最後に開いていた家計簿」の記憶のみ、ブラウザの`localStorage`に保存される端末固有の表示設定です。別環境へデータを持ち出す場合は「エクスポート」でJSONを書き出し、移行先で「インポート」してください（インポートは現在の家計簿のデータを全置換します）。
-
-## PostgreSQLコンテナ（Docker）
-
-リポジトリ直下の `docker-compose.yml` で、`backend/` のSpring Boot APIが使用するPostgreSQLコンテナ（`financemanager` データベース）を起動できます。
+家計簿・カテゴリ・取引はすべてバックエンドAPI経由でMySQLに保存されます（ローカルは `docker-compose.yml` のコンテナ、データは名前付きボリューム `mysql-data`）。テーマと「最後に開いていた家計簿」の記憶のみ、ブラウザの`localStorage`に保存される端末固有の表示設定です。別環境へデータを持ち出す場合は「エクスポート」でJSONを書き出し、移行先で「インポート」してください（インポートは現在の家計簿のデータを全置換します）。
 
 ```
-docker compose up -d   # 起動（localhost:5433、ユーザー/パスワード: financemanager）
-docker compose stop    # 停止（データはボリュームに保持）
+docker compose up -d   # MySQL を起動（localhost:3306、ユーザー/パスワード: root / financemanager）
+docker compose stop    # 停止（データはボリュームに残る）
 ```
-
-低メモリ環境向けに `postgres:16-alpine` を使用し、コンテナのメモリ上限を256MBに制限しています。
 
 ## AWS（EC2）環境
 
-`infra/terraform/` に、AWSの無料枠の範囲でEC2とRDS（PostgreSQL）を1台ずつ作るTerraformの設定があります。作り方・費用の注意点は [`infra/terraform/README.md`](./infra/terraform/README.md) を参照してください。
+`infra/terraform/` に、AWSの無料枠の範囲でEC2とRDS for MySQLを1台ずつ作るTerraformの設定があります。Rails は Docker イメージにして EC2 に送り、画面は nginx が配信します。作り方・費用の注意点は [`infra/terraform/README.md`](./infra/terraform/README.md) を参照してください。
 
 ## 今後の予定
 

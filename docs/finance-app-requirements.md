@@ -18,7 +18,7 @@
 
 ## 2. 流用する既存資産
 
-構成（素のHTML/CSS/JS ＋ Spring Boot ＋ PostgreSQL ＋ EC2/RDS）はそのまま使い、「タスク」の部分だけを「取引」に置き換える。
+最初は構成（素のHTML/CSS/JS ＋ Spring Boot ＋ PostgreSQL ＋ EC2/RDS）をそのまま使い、「タスク」の部分だけを「取引」に置き換えた。2026-10-16 に、技術スタックを Next.js ＋ Ruby on Rails ＋ MySQL に切り替えた（API の形・画面の機能・EC2/RDS の運用はそのまま）。
 
 | 既存機能 | 扱い | 収支アプリでの役割 |
 | --- | --- | --- |

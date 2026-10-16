@@ -16,7 +16,7 @@ const PASSWORD = 'perf-test-password';
 
 // 操作ごとの応答時間を集計するため、リクエストに name タグを付ける
 const ENDPOINTS = [
-    '画面 /', '画面 style.css', '画面 app.js',
+    '画面 /', '画面 _next/static',
     'POST /api/users/register', 'POST /api/auth/login', 'GET /api/auth/me',
     'POST /api/books/ensure-default', 'GET /api/books/{id}/categories', 'GET /api/books/{id}/transactions',
     'GET /api/books/{id}/summary', 'POST /api/books/{id}/transactions', 'GET /api/books/{id}/transactions?q=',
@@ -78,8 +78,13 @@ function login() {
 
 export default function () {
     group('画面の表示', () => {
-        for (const [path, name] of [['/', '画面 /'], ['/style.css', '画面 style.css'], ['/app.js', '画面 app.js']]) {
-            ok(http.get(`${BASE_URL}${path}`, { tags: { name, kind: 'static' } }), name);
+        const page = http.get(`${BASE_URL}/`, { tags: { name: '画面 /', kind: 'static' } });
+        ok(page, '画面 /');
+        // Next.js が書き出す JS・CSS はファイル名にハッシュが付くので、HTML から実際のパスを拾って取りに行く
+        const assets = [...new Set((page.body || '').match(/\/_next\/static\/[^"']+\.(?:js|css)/g) || [])];
+        check(assets, { '画面の JS・CSS が見つかる': (a) => a.length > 0 });
+        for (const path of assets) {
+            ok(http.get(`${BASE_URL}${path}`, { tags: { name: '画面 _next/static', kind: 'static' } }), `画面 ${path}`);
         }
     });
 

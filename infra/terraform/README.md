@@ -1,6 +1,6 @@
 # EC2環境（Terraform）
 
-AWSの無料枠の範囲で、収支管理アプリを動かすEC2を1台と、RDS（PostgreSQL）を1台作ります。
+AWSの無料枠の範囲で、収支管理アプリを動かすEC2を1台と、RDS（MySQL）を1台作ります。
 
 リソース名はすべて `finance-manager-app-*` なので、派生元のタスク管理アプリ（`task-manager-app-*`）の環境とは混ざりません。ただし無料枠の時間（EC2・RDSそれぞれ月750時間）はAWSアカウント全体で共有するため、両方の環境を同時に立ち上げたままにすると無料枠を超えます。使わない方は `./down.ps1` で消しておいてください。
 
@@ -9,25 +9,25 @@ AWSの無料枠の範囲で、収支管理アプリを動かすEC2を1台と、R
 | リソース | 内容 |
 |---|---|
 | EC2 | `t3.micro`（無料枠の対象）、Amazon Linux 2023、ディスク20GB（gp3・暗号化） |
-| RDS | PostgreSQL 16、`db.t4g.micro`（無料枠の対象）、シングルAZ、ストレージ20GB（暗号化）、自動バックアップ1日分 |
+| RDS | MySQL 8.4、`db.t4g.micro`（無料枠の対象）、シングルAZ、ストレージ20GB（暗号化）、自動バックアップ1日分 |
 | Elastic IP | 固定のIPアドレス。サーバーを止めて起動し直してもURLが変わらない |
 | セキュリティグループ（EC2） | 80番（nginx）だけ開ける。8080番は `expose_backend_port = true` のときだけ。SSH（22番）は開けない |
-| セキュリティグループ（RDS） | 5432番を **アプリのEC2からだけ** 許可する。RDSはインターネットから接続できない（`publicly_accessible = false`） |
+| セキュリティグループ（RDS） | 3306番を **アプリのEC2からだけ** 許可する。RDSはインターネットから接続できない（`publicly_accessible = false`） |
 | Parameter Store | DBのパスワード（SecureString。標準パラメータなので無料） |
-| S3バケット | デプロイするファイル（`app.jar` とフロントエンド）の受け渡し場所。非公開・暗号化。環境と一緒に消える |
+| S3バケット | デプロイするファイル（Rails のイメージ `api-image.tar.gz` とフロントエンド `frontend.tar.gz`）の受け渡し場所。非公開・暗号化。環境と一緒に消える |
 | IAMロール | Session Manager の権限、DBのパスワードのパラメータ1つを読む権限、S3バケットのファイルを読む権限だけ |
 
 ## 構成
 
 ```
-ブラウザ ──80──▶ nginx ──/api/──▶ Spring Boot（8080, Java 25）──5432──▶ RDS（PostgreSQL）
+ブラウザ ──80──▶ nginx ──/api/──▶ Rails API（8080→コンテナ内3000, Ruby 4.0）──3306──▶ RDS（MySQL）
                   └─ それ以外 ─▶ フロントエンドのファイル
 ```
 
 | ポート | 役割 | 中身 |
 |---|---|---|
-| 80 | nginx | `/opt/finance-manager/frontend/`（`index.html` / `style.css` / `app.js`）を配信し、`/api/` をバックエンドへ中継する |
-| 8080 | バックエンドAPI | Spring Boot（`/opt/finance-manager/app.jar`、`eclipse-temurin:25-jre`） |
+| 80 | nginx | `/opt/finance-manager/frontend/`（Next.js で書き出した静的ファイル）を配信し、`/api/` をバックエンドへ中継する |
+| 8080 | バックエンドAPI | Rails API（`finance-manager-api:latest` イメージ。起動のたびに `db:prepare` で未適用のマイグレーションを流す） |
 
 フロントエンドとAPIが同じオリジン（`http://<IP>`）になるので、CORSの設定は要りません。
 
@@ -35,13 +35,13 @@ DBのパスワードは、`terraform apply` の間だけ作られ、RDSと Param
 
 サーバーの初回起動時に `user_data.sh.tftpl` が次の準備をします。
 
-- 2GBのスワップを作る（メモリ1GBで Spring Boot を動かすため）
+- 2GBのスワップを作る（メモリ1GBでイメージの読み込みや Rails の起動をこなすため）
 - Docker と Docker Compose を入れる
 - Parameter Store からDBのパスワードを読み、`/opt/finance-manager/.env`（rootだけが読める）に保存する
 - `/opt/finance-manager/` に `docker-compose.yml` と nginx の設定を置き、nginx（`web`）を起動する
   - nginx は、デプロイするまで「準備中」のページを表示し、`/api/` には 502 を返す
 
-アプリ本体（フロントエンドのファイルと `app.jar`）は、このあと `deploy.ps1` が置き、バックエンドを起動します。
+アプリ本体（Next.js で書き出したフロントエンドと Rails のイメージ）は、このあと `deploy.ps1` が置き、バックエンドを起動します。
 
 ## 無料枠に収めるための工夫と、注意点
 
@@ -68,7 +68,7 @@ cd infra/terraform
 | スクリプト | やること |
 |---|---|
 | `up.ps1` | 最新のDBスナップショットがあれば、そこから RDS を復元して環境を作る（なければ空のDB）。80番が応答するまで待ち、`deploy.ps1` を実行してURLを表示する。`-SkipDeploy` を付けると作るだけ |
-| `deploy.ps1` | JDK 25 と Maven（このPCの `~/tools`）で `app.jar` をビルドし、`app.jar` とフロントエンド（`index.html` / `style.css` / `app.js`）を非公開のS3バケットに置く。EC2 が Session Manager 経由でそれを取り込み、バックエンドを起動し直す。ログインなしの `/api/boards` が 401 を返したら完了。`-SkipBuild` を付けるとビルドを省く |
+| `deploy.ps1` | Node.js（このPCの `~/tools`）で Next.js を静的ファイルに書き出し、Docker Desktop で Rails のイメージ（`backend/Dockerfile`）を作る。両方を非公開のS3バケットに置き、EC2 が Session Manager 経由でそれを取り込み（`docker load`）、バックエンドを起動し直す。ログインなしの `/api/books` が 401 を返したら完了。EC2（メモリ1GB）では gem をビルドしない。`-SkipBuild` を付けると前回ビルドしたものを送る |
 | `perf.ps1` | 今ある環境に E2E パフォーマンステストを流す（下の「E2E パフォーマンステスト」） |
 | `down.ps1` | RDSのスナップショットを取り、完成を待ってから `terraform destroy` で全部消す。スナップショットに失敗したら何も消さずに止まる。スナップショットは新しいものから2つだけ残す |
 
@@ -90,7 +90,7 @@ aws ssm start-session --target <インスタンスID> --region ap-northeast-1
 
 ## E2E パフォーマンステスト
 
-ブラウザと同じ道筋（nginx → Spring Boot → RDS）で、何人かが同時に使ったときの速さを測ります。負荷をかけるツールは [k6](https://grafana.com/docs/k6/latest/)（`~/tools/k6-v2.3.0-windows-amd64/k6.exe`）、シナリオは `perf/e2e-perf.js` です。
+ブラウザと同じ道筋（nginx → Rails → RDS）で、何人かが同時に使ったときの速さを測ります。負荷をかけるツールは [k6](https://grafana.com/docs/k6/latest/)（`~/tools/k6-v2.3.0-windows-amd64/k6.exe`）、シナリオは `perf/e2e-perf.js` です。
 
 ```powershell
 ./up.ps1                          # 環境がなければ作る
@@ -101,7 +101,7 @@ aws ssm start-session --target <インスタンスID> --region ap-northeast-1
 
 1人ぶんの流れ（これを繰り返す）:
 
-1. 画面を開く（`/`・`style.css`・`app.js`）
+1. 画面を開く（`/` と、そこに書かれた `/_next/static/` の JS・CSS）
 2. 初回だけアカウント登録とログイン（`e2e-perf-<実行ID>-<番号>@example.com`）
 3. 家計簿を開く（ログイン中のユーザー・家計簿・カテゴリの一覧、今月の取引と集計）
 4. 取引を登録する → 集計を見る → 検索する → 別のカテゴリに移す → 編集する → 消す
@@ -171,7 +171,7 @@ Remove-Variable p
 $ip = & $tf output -raw public_ip
 (Invoke-WebRequest "http://$ip/").StatusCode                                       # 200 なら OK
 $c = [Net.Sockets.TcpClient]::new(); $c.ConnectAsync($ip, 8080).Wait(5000); $c.Dispose()   # False なら OK（8080 は閉じている）
-$c = [Net.Sockets.TcpClient]::new(); $c.ConnectAsync((& $tf output -raw db_endpoint), 5432).Wait(5000); $c.Dispose()   # False なら OK（RDS に外から入れない）
+$c = [Net.Sockets.TcpClient]::new(); $c.ConnectAsync((& $tf output -raw db_endpoint), 3306).Wait(5000); $c.Dispose()   # False なら OK（RDS に外から入れない）
 ```
 
 ### 5. 消し忘れ（`down.ps1` のあと）
@@ -187,7 +187,7 @@ aws rds describe-db-snapshots --region $r --snapshot-type manual --query "DBSnap
 
 | 観点 | 見るところ |
 |---|---|
-| 公開範囲 | EC2 は 80 番だけ（8080 は `expose_backend_port` のときだけ、22 は開けない）。RDS は非公開で、5432 番はアプリのEC2からだけ |
+| 公開範囲 | EC2 は 80 番だけ（8080 は `expose_backend_port` のときだけ、22 は開けない）。RDS は非公開で、3306 番はアプリのEC2からだけ |
 | 秘密情報 | DBのパスワードが Git・state・`user_data`・起動ログに出ていない。`*.tfstate` / `*.tfvars` は `.gitignore` 済み |
 | 権限 | EC2のロールは Session Manager と、パスワードのパラメータ1つを読む権限だけ |
 | 暗号化 | EBS・RDS・スナップショットが暗号化されている。IMDSv2 必須 |
