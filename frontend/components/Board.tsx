@@ -2,7 +2,7 @@
 
 import { useState, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
 import type { Category, CategoryType, Summary, Transaction } from "@/lib/api";
-import { formatMonthLabel, formatTxnDate, formatYen, MAX_AMOUNT, otherType, tagColorClass, TYPE_LABEL, type TagLayout } from "@/lib/format";
+import { formatMonthLabel, formatTxnDate, formatYen, MAX_AMOUNT, otherType, tagColorClass, TYPE_LABEL } from "@/lib/format";
 
 const CATEGORY_DRAG_TYPE = "application/x-category-id";
 const TXN_DRAG_TYPE = "application/x-transaction-id";
@@ -18,7 +18,6 @@ type BoardProps = {
   onOpenTransaction: (txn: Transaction) => void;
   onAddTransaction: (categoryId: string) => void;
   onRemoveTag: (txn: Transaction, tag: string) => void;
-  tagLayout: TagLayout;
   onToggleSelected: (id: string) => void;
   onMoveTransaction: (txnId: string, categoryId: string) => void;
   onRenameCategory: (category: Category, name: string) => void;
@@ -347,32 +346,7 @@ function TransactionCard(props: ColumnProps & { txn: Transaction }) {
       </div>
       {/* メモが空のときはカテゴリ名を薄く出す */}
       <div className={`txn-memo${txn.memo ? "" : " empty"}`}>{txn.memo || category.name}</div>
-      {/* タグは縦の一覧か横並び(メニューで切り替え)。1つずつ外せる(押すと確認のモーダルが出る) */}
-      {txn.tags.length > 0 && (
-        <ul className={`txn-tags ${props.tagLayout}`} aria-label="タグ">
-          {txn.tags.map((tag) => (
-            <li key={tag} className="txn-tag-item">
-              <span className={`tag ${tagColorClass(tag)}`}>{tag}</span>
-              {!selectionMode && (
-                <button
-                  type="button"
-                  className="tag-remove"
-                  aria-label={`タグ「${tag}」を削除`}
-                  title="このタグを削除"
-                  draggable={false}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    props.onRemoveTag(txn, tag);
-                  }}
-                  onKeyDown={(e) => e.stopPropagation()}
-                >
-                  ×
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+      <TagList txn={txn} selectionMode={selectionMode} onRemoveTag={props.onRemoveTag} />
     </div>
   );
 }
@@ -414,5 +388,39 @@ function AddCategoryColumn({ onAdd }: { onAdd: (name: string, type: CategoryType
         <button type="button" className="add-column-btn" onClick={() => setOpen(true)}>+ カテゴリを追加</button>
       )}
     </section>
+  );
+}
+
+// 取引のタグ。1つずつ「×」で外せる(押すと確認のモーダルが出る)。カンバンと一覧の両方で使う
+export function TagList({ txn, selectionMode, onRemoveTag }: {
+  txn: Transaction;
+  selectionMode: boolean;
+  onRemoveTag: (txn: Transaction, tag: string) => void;
+}) {
+  if (txn.tags.length === 0) return null;
+  return (
+    <ul className="txn-tags" aria-label="タグ">
+      {txn.tags.map((tag) => (
+        <li key={tag} className="txn-tag-item">
+          <span className={`tag ${tagColorClass(tag)}`}>{tag}</span>
+          {!selectionMode && (
+            <button
+              type="button"
+              className="tag-remove"
+              aria-label={`タグ「${tag}」を削除`}
+              title="このタグを削除"
+              draggable={false}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemoveTag(txn, tag);
+              }}
+              onKeyDown={(e) => e.stopPropagation()}
+            >
+              ×
+            </button>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }
