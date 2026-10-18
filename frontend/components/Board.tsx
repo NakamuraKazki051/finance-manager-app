@@ -329,6 +329,8 @@ function TransactionCard(props: ColumnProps & { txn: Transaction }) {
       }}
       onDragEnd={() => setDragging(false)}
     >
+      {/* ごみ箱はカードの右上の角に置く */}
+      {!selectionMode && <DeleteTxnButton onClick={() => props.onDeleteTransaction(txn)} />}
       <div className="txn-card-head">
         {selectionMode && (
           <input
@@ -345,7 +347,6 @@ function TransactionCard(props: ColumnProps & { txn: Transaction }) {
           {formatYen(txn.amount)}
         </span>
         <span className="txn-date">{formatTxnDate(txn.date)}</span>
-        {!selectionMode && <DeleteTxnButton onClick={() => props.onDeleteTransaction(txn)} />}
       </div>
       {/* メモが空のときはカテゴリ名を薄く出す */}
       <div className={`txn-memo${txn.memo ? "" : " empty"}`}>{txn.memo || category.name}</div>
