@@ -43,7 +43,7 @@ MySQL コンテナが起動している必要があります。メモリの少�
 |---|---|
 | `users` | メールアドレス（小文字にそろえて一意）、パスワードのハッシュ |
 | `books` | 家計簿。ユーザーごとに複数持てる |
-| `categories` | カテゴリ。`kind` が `INCOME`（収入）か `EXPENSE`（支出）。画面ではカンバンの1列。Rails では `type` 列が特別扱いなので列名は `kind` で、API では `type` として返す |
+| `categories` | カテゴリ。`kind` が `INCOME`（収入）か `EXPENSE`（支出）。`budget` は月間予算（円、未設定は NULL）。画面ではカンバンの1列。Rails では `type` 列が特別扱いなので列名は `kind` で、API では `type` として返す |
 | `entries` | 取引。API では transactions と呼ぶ（モデル名を `Transaction` にすると ActiveRecord の `transaction` と紛らわしいため `Entry`）。金額 `amount` は円の整数（1〜99,999,999）で符号は持たず、収入か支出かはカテゴリで決まる。`transaction_date`、`memo`、`tags`（JSON） |
 
 - ID は推測されにくい UUID の文字列
@@ -68,11 +68,11 @@ MySQL コンテナが起動している必要があります。メモリの少�
 | POST | `/api/books/ensure-default` | 家計簿が1冊も無ければ「家計簿」と初期カテゴリ（給与/食費/日用品/交通費/住居・光熱費/その他）を作成し、一覧を返す。ユーザー行をロックするので、同時に呼ばれても1冊しか作らない |
 | PUT | `/api/books/:id` | 家計簿名変更 `{name}` |
 | DELETE | `/api/books/:id` | 家計簿削除（そのカテゴリ・取引も削除。最後の1冊は不可） |
-| PUT | `/api/books/:book_id/import` | 家計簿のカテゴリ・取引をJSONで全置換 `{categories, transactions}` |
+| PUT | `/api/books/:book_id/import` | 家計簿のカテゴリ・取引をJSONで全置換 `{categories: [{id, name, type, budget?}], transactions}` |
 | GET | `/api/books/:book_id/export.csv?month=YYYY-MM` | 取引のCSV（BOM付きUTF-8・CRLF、日付の古い順）。`month` を省くと全期間。`=` `+` `-` `@` で始まる値は先頭に `'` を付けて数式として実行されないようにする |
 | GET | `/api/books/:book_id/categories` | カテゴリ一覧（表示順） |
-| POST | `/api/books/:book_id/categories` | カテゴリ作成 `{name, type}` |
-| PUT | `/api/categories/:id` | カテゴリ更新 `{name?, type?}`（`type` を変えると、そのカテゴリの取引はすべての月で新しい種別として集計される） |
+| POST | `/api/books/:book_id/categories` | カテゴリ作成 `{name, type, budget?}` |
+| PUT | `/api/categories/:id` | カテゴリ更新 `{name?, type?, budget?}`（`budget` は1〜99,999,999円の整数、`null` で予算を外す。`type` を変えると、そのカテゴリの取引はすべての月で新しい種別として集計される） |
 | PATCH | `/api/categories/:id/move` | カテゴリの並び替え `{displayOrder}` |
 | DELETE | `/api/categories/:id` | カテゴリ削除（そのカテゴリの取引もすべての月の分を削除。最後の1つは不可） |
 | GET | `/api/books/:book_id/transactions?month=&tag=&q=&minAmount=&maxAmount=&sort=date\|amount` | 取引一覧。`month`（YYYY-MM）を省くと全期間。`q` はメモの部分一致。`sort=date`（既定）は日付の新しい順、`amount` は金額の大きい順 |

@@ -2,7 +2,7 @@
 
 import { useState, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
 import type { Category, CategoryType, Summary, Transaction } from "@/lib/api";
-import { formatMonthLabel, formatTxnDate, formatYen, otherType, tagColorClass, TYPE_LABEL } from "@/lib/format";
+import { formatMonthLabel, formatTxnDate, formatYen, MAX_AMOUNT, otherType, tagColorClass, TYPE_LABEL } from "@/lib/format";
 
 const CATEGORY_DRAG_TYPE = "application/x-category-id";
 const TXN_DRAG_TYPE = "application/x-transaction-id";
@@ -21,6 +21,7 @@ type BoardProps = {
   onMoveTransaction: (txnId: string, categoryId: string) => void;
   onRenameCategory: (category: Category, name: string) => void;
   onToggleCategoryType: (category: Category) => void;
+  onSetBudget: (category: Category, budget: number | null) => void;
   onMoveCategory: (categoryId: string, index: number) => void;
   onDeleteCategory: (category: Category) => void;
   onAddCategory: (name: string, type: CategoryType) => Promise<boolean>;
@@ -143,6 +144,9 @@ function CategoryColumn(props: ColumnProps) {
         </button>
         <span className="column-total-amount" title={`${formatMonthLabel(month)}の合計`}>{formatYen(total)}</span>
       </div>
+      {category.type === "EXPENSE" && (
+        <BudgetRow budget={category.budget} spent={total} month={month} onSave={(budget) => props.onSetBudget(category, budget)} />
+      )}
       <div className="card-list">
         {columnTransactions.length === 0 && (
           <div className="empty-hint">{props.filterActive ? "条件に合う取引はありません" : "この月の取引はありません"}</div>
@@ -158,6 +162,97 @@ function CategoryColumn(props: ColumnProps) {
         </button>
       )}
     </section>
+  );
+}
+
+type BudgetRowProps = { budget: number | null; spent: number; month: string; onSave: (budget: number | null) => void };
+
+// 支出カテゴリの月間予算。表示中の月の合計と比べて残りを出し、超えたら赤くする
+function BudgetRow({ budget, spent, month, onSave }: BudgetRowProps) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+  const [error, setError] = useState(false);
+
+  function startEditing() {
+    setValue(budget === null ? "" : String(budget));
+    setError(false);
+    setEditing(true);
+  }
+
+  // 空欄は「予算なし」。全角数字やカンマ付きでも受け付ける
+  function commit() {
+    const text = value.normalize("NFKC").replace(/[,¥円\s]/g, "");
+    if (text === "") {
+      setEditing(false);
+      if (budget !== null) onSave(null);
+      return;
+    }
+    const next = Number(text);
+    if (!Number.isInteger(next) || next < 1 || next > MAX_AMOUNT) {
+      setError(true);
+      return;
+    }
+    setEditing(false);
+    if (next !== budget) onSave(next);
+  }
+
+  if (editing) {
+    return (
+      <div className="budget-row">
+        <input
+          className={`budget-input${error ? " invalid" : ""}`}
+          inputMode="numeric"
+          placeholder="月の予算（空欄で予算なし）"
+          aria-label="月の予算(円)"
+          aria-invalid={error}
+          title={error ? "1〜99,999,999円の整数で入力してください" : undefined}
+          value={value}
+          autoFocus
+          onFocus={(e) => e.target.select()}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setError(false);
+          }}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commit();
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              e.stopPropagation();
+              setEditing(false);
+            }
+          }}
+        />
+        {error && <div className="budget-error">1〜99,999,999円の整数で入力してください</div>}
+      </div>
+    );
+  }
+
+  if (budget === null) {
+    return (
+      <div className="budget-row">
+        <button type="button" className="budget-set-btn" onClick={startEditing}>+ 予算を設定</button>
+      </div>
+    );
+  }
+
+  const remaining = budget - spent;
+  const over = remaining < 0;
+  const ratio = Math.min(spent / budget, 1);
+  return (
+    <div className={`budget-row${over ? " over" : ""}`}>
+      <button type="button" className="budget-summary" title={`${formatMonthLabel(month)}の予算(クリックで変更)`} onClick={startEditing}>
+        <span>予算 {formatYen(budget)}</span>
+        <span className="budget-remaining">{over ? `${formatYen(-remaining)} 超過` : `残り ${formatYen(remaining)}`}</span>
+      </button>
+      <div className="budget-bar" role="progressbar" aria-label="予算の使用率" aria-valuemin={0} aria-valuemax={100}
+        aria-valuenow={Math.round(ratio * 100)}>
+        <div className="budget-bar-fill" style={{ width: `${ratio * 100}%` }} />
+      </div>
+    </div>
   );
 }
 

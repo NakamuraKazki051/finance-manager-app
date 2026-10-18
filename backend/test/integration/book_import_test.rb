@@ -10,7 +10,7 @@ class BookImportTest < ActionDispatch::IntegrationTest
     {
       categories: [
         { id: "old-income", name: "給与", type: "INCOME" },
-        { id: "old-food", name: "食費", type: "EXPENSE" }
+        { id: "old-food", name: "食費", type: "EXPENSE", budget: 40_000 }
       ],
       transactions: [
         { categoryId: "old-income", amount: 250_000, date: "2026-10-25", memo: "10月分" },
@@ -28,6 +28,7 @@ class BookImportTest < ActionDispatch::IntegrationTest
 
     categories = categories_of(@book_id)
     assert_equal %w[給与 食費], categories.map { |c| c["name"] }
+    assert_equal [nil, 40_000], categories.map { |c| c["budget"] }
     transactions = list_transactions(@book_id)
     assert_equal [250_000, 1200], amounts(transactions)
     # カテゴリIDは新しく振り直され、取引はそちらを指す
@@ -47,6 +48,7 @@ class BookImportTest < ActionDispatch::IntegrationTest
         transactions: [{ categoryId: "c1", amount: 1, date: "2026-10-01", memo: "あ" * 300 }] },
       { categories: [{ id: "c1", name: "食費" }] },
       { categories: [{ id: "c1", type: "EXPENSE" }] },
+      { categories: [{ id: "c1", name: "食費", type: "EXPENSE", budget: -5 }] },
       { categories: [] }
     ]
     invalid_backups.each do |backup|

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_16_000001) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_18_000001) do
   create_table "books", id: { type: :string, limit: 36 }, charset: "utf8mb4", collation: "utf8mb4_0900_ai_ci", force: :cascade do |t|
     t.string "user_id", limit: 36, null: false
     t.string "name", limit: 30, null: false
@@ -23,6 +23,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_16_000001) do
     t.string "name", limit: 30, null: false
     t.string "kind", limit: 10, null: false
     t.integer "display_order", default: 0, null: false
+    t.bigint "budget"
     t.index ["book_id", "display_order"], name: "index_categories_on_book_id_and_display_order"
   end
 

@@ -529,6 +529,63 @@ kbd {
 .column-type.expense { background: var(--expense-bg); color: var(--expense); }
 .column-type:hover { filter: brightness(0.95); }
 
+/* 支出カテゴリの月間予算。残りと使用率のバーを出し、超えたら赤くする */
+.budget-row {
+  margin: -4px 6px 10px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.budget-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 2px 4px;
+  margin: 0 -4px 3px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  box-sizing: content-box;
+}
+.budget-summary:hover { background: var(--hover-overlay); }
+.budget-remaining { font-weight: 700; }
+.budget-row.over .budget-remaining { color: var(--expense); }
+.budget-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+.budget-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+}
+.budget-row.over .budget-bar-fill { background: var(--expense); }
+.budget-set-btn {
+  padding: 2px 4px;
+  margin: 0 -4px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.budget-set-btn:hover { background: var(--hover-overlay); color: var(--text); }
+.budget-input {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  padding: 4px 6px;
+}
+.budget-input.invalid { border-color: var(--expense); outline-color: var(--expense); }
+.budget-error { margin-top: 3px; color: var(--expense); }
+
 .column-delete {
   background: transparent;
   border: none;

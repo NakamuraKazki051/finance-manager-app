@@ -13,6 +13,6 @@ class Category < ApplicationRecord
 
   # API では種別を type という名前で返す(Rails では type 列が特別扱いなので、DB の列名は kind)
   def as_api_json
-    { id: id, bookId: book_id, name: name, type: kind, displayOrder: display_order }
+    { id: id, bookId: book_id, name: name, type: kind, displayOrder: display_order, budget: budget }
   end
 end

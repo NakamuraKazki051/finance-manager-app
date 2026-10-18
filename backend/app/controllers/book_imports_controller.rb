@@ -1,5 +1,5 @@
 class BookImportsController < ApplicationController
-  # PUT /api/books/:book_id/import  {categories: [{id, name, type}], transactions: [{categoryId, amount, date, memo, tags}]}
+  # PUT /api/books/:book_id/import  {categories: [{id, name, type, budget?}], transactions: [{categoryId, amount, date, memo, tags}]}
   # 家計簿のカテゴリ・取引をバックアップの内容で置き換える。1件でも不正なデータがあれば何も変更しない
   def update
     book_id = params[:book_id]
@@ -17,7 +17,8 @@ class BookImportsController < ApplicationController
         old_id: c[:id]&.to_s,
         name: required_string(c[:name], max: 30, blank_message: "カテゴリ名を入力してください",
                                         too_long_message: "カテゴリ名は30文字以内で入力してください").strip,
-        kind: category_kind(c[:type])
+        kind: category_kind(c[:type]),
+        budget: budget_value(c[:budget])
       }
     end
     known_ids = category_rows.filter_map { |c| c[:old_id] }
@@ -40,7 +41,8 @@ class BookImportsController < ApplicationController
       Category.where(book_id: book_id).delete_all
       id_map = {}
       category_rows.each_with_index do |row, index|
-        category = Category.create!(book_id: book_id, name: row[:name], kind: row[:kind], display_order: index)
+        category = Category.create!(book_id: book_id, name: row[:name], kind: row[:kind], budget: row[:budget],
+                                    display_order: index)
         id_map[row[:old_id]] = category.id if row[:old_id]
       end
       entry_rows.each do |row|

@@ -87,6 +87,15 @@ class ApplicationController < ActionController::API
     value
   end
 
+  # 月間予算(円の整数)。null は「予算なし」
+  def budget_value(value)
+    return nil if value.nil?
+    unless value.is_a?(Integer) && value.between?(1, Entry::MAX_AMOUNT)
+      raise ApiError.bad_request("予算は1〜99,999,999円の整数で入力してください")
+    end
+    value
+  end
+
   def date_value(value)
     raise ApiError.bad_request("日付を入力してください") if value.nil?
     unless value.is_a?(String) && value.match?(/\A\d{4}-\d{2}-\d{2}\z/)
