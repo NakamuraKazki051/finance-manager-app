@@ -3,7 +3,7 @@
 import type { KeyboardEvent } from "react";
 import type { Category, Transaction } from "@/lib/api";
 import { formatTxnDate, formatYen, TYPE_LABEL } from "@/lib/format";
-import { TagList } from "./Board";
+import { DeleteTxnButton, TagList } from "./Board";
 
 type Props = {
   categories: Category[];
@@ -14,6 +14,7 @@ type Props = {
   onOpenTransaction: (txn: Transaction) => void;
   onToggleSelected: (id: string) => void;
   onRemoveTag: (txn: Transaction, tag: string) => void;
+  onDeleteTransaction: (txn: Transaction) => void;
   onAddTransaction: () => void;
 };
 
@@ -87,6 +88,7 @@ function ListRow(props: Props & { txn: Transaction; category: Category }) {
       </span>
       <span className={`txn-memo${txn.memo ? "" : " empty"}`}>{txn.memo || "メモなし"}</span>
       <TagList txn={txn} selectionMode={selectionMode} onRemoveTag={props.onRemoveTag} />
+      {!selectionMode && <DeleteTxnButton onClick={() => props.onDeleteTransaction(txn)} />}
     </li>
   );
 }

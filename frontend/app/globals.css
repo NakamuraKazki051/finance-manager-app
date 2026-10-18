@@ -817,8 +817,8 @@ kbd {
 }
 .txn-row {
   display: grid;
-  grid-template-areas: "check date cat amount memo tags";
-  grid-template-columns: auto 3.2em 7em 7.5em minmax(0, 1fr) auto;
+  grid-template-areas: "check date cat amount memo tags del";
+  grid-template-columns: auto 3.2em 7em 7.5em minmax(0, 1fr) auto auto;
   align-items: center;
   column-gap: 12px;
   cursor: pointer;
@@ -829,6 +829,7 @@ kbd {
 .txn-row .txn-amount { grid-area: amount; text-align: right; }
 .txn-row .txn-memo { grid-area: memo; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .txn-row .txn-tags { grid-area: tags; margin: 0; justify-content: flex-end; }
+.txn-row .txn-delete { grid-area: del; }
 .txn-row-category {
   font-size: 0.82rem;
   font-weight: 700;
@@ -845,17 +846,36 @@ kbd {
 /* 狭い画面では、日付・カテゴリ・金額の下にメモとタグを回す */
 @media (max-width: 720px) {
   .txn-row {
-    grid-template-columns: auto 3.2em minmax(0, 1fr) auto;
+    grid-template-columns: auto 3.2em minmax(0, 1fr) auto auto;
     grid-template-areas:
-      "check date cat amount"
-      "check memo memo memo"
-      "check tags tags tags";
+      "check date cat amount del"
+      "check memo memo memo memo"
+      "check tags tags tags tags";
     row-gap: 4px;
   }
   .txn-row .txn-tags { justify-content: flex-start; }
 }
 
-/* タグを外す確認モーダルの本文 */
+/* カードのごみ箱ボタン。カードにマウスを乗せたときだけ濃くする */
+.txn-delete {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 3px;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0.55;
+}
+.txn-card:hover .txn-delete,
+.txn-card:focus-within .txn-delete { opacity: 1; }
+.txn-delete:hover { background: var(--border); color: var(--danger); }
+@media (hover: none) { .txn-delete { opacity: 1; } }
+
+/* 確認モーダル(タグ・取引の削除)の本文 */
 .confirm-text { margin: 4px 0 8px; line-height: 1.8; }
 .confirm-sub { margin: 0 0 16px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6; }
 

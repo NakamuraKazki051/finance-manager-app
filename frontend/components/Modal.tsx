@@ -55,3 +55,30 @@ export function PasswordField({
     </div>
   );
 }
+
+// 削除などの前に出す簡単な確認。Esc で閉じる処理は FinanceApp でまとめて行う
+export function ConfirmModal({
+  title,
+  children,
+  confirmLabel = "削除する",
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  children: ReactNode;
+  confirmLabel?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <Modal title={title} onClose={onCancel}>
+      <div className="confirm-body">{children}</div>
+      <div className="modal-actions">
+        <div className="modal-actions-right">
+          <button type="button" className="btn-secondary" onClick={onCancel}>キャンセル</button>
+          <button type="button" className="btn-danger" autoFocus onClick={onConfirm}>{confirmLabel}</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
