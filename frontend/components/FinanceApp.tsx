@@ -22,10 +22,13 @@ import {
   MAX_AMOUNT,
   otherType,
   shiftMonth,
+  tagColorClass,
   TYPE_LABEL,
+  type TagLayout,
 } from "@/lib/format";
 import { AccountModal, LoginModal, RegisterModal } from "./AuthModals";
 import { Board } from "./Board";
+import { Modal } from "./Modal";
 import { TransactionModal, type TransactionInput } from "./TransactionModal";
 
 const CURRENT_BOOK_KEY = "finance-manager-app:currentBook";
@@ -44,6 +47,10 @@ function saveFile(blob: Blob, filename: string) {
 const THEME_KEY = "finance-manager-app:theme";
 type Theme = "system" | "light" | "dark";
 const THEME_LABEL: Record<Theme, string> = { system: "🖥️ テーマ: 自動", light: "☀️ テーマ: ライト", dark: "🌙 テーマ: ダーク" };
+
+// カードのタグの並び(TagLayout)の記憶先
+const TAG_LAYOUT_KEY = "finance-manager-app:tagLayout";
+const TAG_LAYOUT_LABEL: Record<TagLayout, string> = { vertical: "🏷️ タグ: 縦に並べる", horizontal: "🏷️ タグ: 横に並べる" };
 
 type AuthModal = "login" | "register" | "account" | null;
 type Filters = { q: string; tag: string; min: string; max: string };
@@ -96,6 +103,8 @@ export default function FinanceApp() {
   const [summary, setSummary] = useState<Summary | null>(null);
 
   const [editing, setEditing] = useState<Transaction | "new" | null>(null);
+  // カードのタグの × を押したときの確認モーダル
+  const [tagRemoval, setTagRemoval] = useState<{ txn: Transaction; tag: string } | null>(null);
   // 列の「+ 取引を追加」から開いたときは、そのカテゴリを選んだ状態で開く
   const [newCategoryId, setNewCategoryId] = useState<string | null>(null);
   const openNewTransaction = (categoryId: string | null = null) => {
@@ -106,6 +115,7 @@ export default function FinanceApp() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [menuOpen, setMenuOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>("system");
+  const [tagLayout, setTagLayout] = useState<TagLayout>("vertical");
 
   const searchRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
@@ -122,6 +132,7 @@ export default function FinanceApp() {
     setVisibleTxns([]);
     setSummary(null);
     setEditing(null);
+    setTagRemoval(null);
     setSelectionMode(false);
     setSelectedIds(new Set());
     setMonth(currentMonthString());
@@ -151,6 +162,18 @@ export default function FinanceApp() {
     const next = order[(order.indexOf(theme) + 1) % order.length];
     setTheme(next);
     writeStorage(THEME_KEY, next);
+  }
+
+  // --- タグの並び ---
+  useEffect(() => {
+    // 保存済みの並びは画面を開いた直後に1回だけ反映する
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (readStorage(TAG_LAYOUT_KEY) === "horizontal") setTagLayout("horizontal");
+  }, []);
+  function toggleTagLayout() {
+    const next: TagLayout = tagLayout === "vertical" ? "horizontal" : "vertical";
+    setTagLayout(next);
+    writeStorage(TAG_LAYOUT_KEY, next);
   }
 
   // --- ログインと家計簿の読み込み ---
@@ -406,6 +429,25 @@ export default function FinanceApp() {
   // 新しい取引の日付の初期値。今月を見ているなら今日、ほかの月を見ているならその月の1日
   const defaultDate = month === currentMonthString() ? localDateString() : `${month}-01`;
 
+  // 取引の更新 API は全項目を受け取るので、タグだけ減らしてそのまま送り直す
+  async function removeTag() {
+    if (!tagRemoval) return;
+    const { txn, tag } = tagRemoval;
+    try {
+      await api.put(`/api/transactions/${txn.id}`, {
+        amount: txn.amount,
+        date: txn.date,
+        categoryId: txn.categoryId,
+        memo: txn.memo ?? "",
+        tags: txn.tags.filter((t) => t !== tag),
+      });
+    } catch {
+      return;
+    }
+    setTagRemoval(null);
+    reload();
+  }
+
   async function saveTransaction(input: TransactionInput) {
     if (!bookId) return;
     try {
@@ -567,7 +609,7 @@ export default function FinanceApp() {
   }
 
   // --- キーボード操作 ---
-  const anyModalOpen = editing !== null || authModal !== null;
+  const anyModalOpen = editing !== null || authModal !== null || tagRemoval !== null;
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
@@ -575,7 +617,8 @@ export default function FinanceApp() {
           setMenuOpen(false);
           return;
         }
-        if (editing) setEditing(null);
+        if (tagRemoval) setTagRemoval(null);
+        else if (editing) setEditing(null);
         else if (authModal) setAuthModal(null);
         else if (selectionMode) toggleSelectionMode(false);
         return;
@@ -594,7 +637,7 @@ export default function FinanceApp() {
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [editing, authModal, selectionMode, anyModalOpen, bookId]);
+  }, [editing, authModal, tagRemoval, selectionMode, anyModalOpen, bookId]);
 
   // メニューの外をクリックしたら閉じる
   useEffect(() => {
@@ -683,6 +726,7 @@ export default function FinanceApp() {
               }}>⚙ 設定・データ</summary>
               <div className="menu-panel">
                 <button type="button" className="btn-secondary" title="クリックでテーマを切り替え(自動→ライト→ダーク)" onClick={cycleTheme}>{THEME_LABEL[theme]}</button>
+                <button type="button" className="btn-secondary" title="クリックでカードのタグの並びを切り替え(縦⇔横)" onClick={toggleTagLayout}>{TAG_LAYOUT_LABEL[tagLayout]}</button>
                 <button type="button" className="btn-secondary" onClick={() => exportCsv("month")}>⬇ CSV（表示中の月）</button>
                 <button type="button" className="btn-secondary" onClick={() => exportCsv("all")}>⬇ CSV（全期間）</button>
                 <button type="button" className="btn-secondary" onClick={exportData}>⬇ エクスポート</button>
@@ -767,6 +811,8 @@ export default function FinanceApp() {
           selectionMode={selectionMode}
           selectedIds={selectedIds}
           onOpenTransaction={setEditing}
+          onRemoveTag={(txn, tag) => setTagRemoval({ txn, tag })}
+          tagLayout={tagLayout}
           onAddTransaction={openNewTransaction}
           onToggleSelected={toggleSelected}
           onMoveTransaction={moveTransaction}
@@ -786,6 +832,24 @@ export default function FinanceApp() {
       {/* スマホでは画面下に固定し、片手ですぐ記録できるようにする */}
       {loggedIn && (
         <button type="button" className="fab" aria-label="取引を追加" onClick={() => openNewTransaction()}>＋</button>
+      )}
+
+      {tagRemoval && (
+        <Modal title="タグを削除" onClose={() => setTagRemoval(null)}>
+          <p className="confirm-text">
+            この取引からタグ「<span className={`tag ${tagColorClass(tagRemoval.tag)}`}>{tagRemoval.tag}</span>」を外しますか?
+          </p>
+          <p className="confirm-sub">
+            {tagRemoval.txn.date.replaceAll("-", "/")} {formatYen(tagRemoval.txn.amount)} {tagRemoval.txn.memo ?? ""}
+            <br />取引そのものと、他の取引のタグは消えません。
+          </p>
+          <div className="modal-actions">
+            <div className="modal-actions-right">
+              <button type="button" className="btn-secondary" onClick={() => setTagRemoval(null)}>キャンセル</button>
+              <button type="button" className="btn-danger" autoFocus onClick={removeTag}>削除する</button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {editing && (

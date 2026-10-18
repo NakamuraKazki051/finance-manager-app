@@ -756,13 +756,42 @@ kbd {
 /* メモが空のときはカテゴリ名を薄く出す */
 .txn-memo.empty { color: var(--text-muted); }
 
-.txn-meta {
+/* カードのタグ。縦(一覧)か横並びかは「⚙ 設定・データ」で切り替える */
+.txn-tags {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
   display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  align-items: center;
-  margin-top: 8px;
+  gap: 4px;
 }
+.txn-tags.vertical { flex-direction: column; align-items: stretch; }
+.txn-tags.horizontal { flex-wrap: wrap; align-items: center; gap: 5px; }
+
+.txn-tag-item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.txn-tags.vertical .txn-tag-item { justify-content: space-between; }
+.txn-tags.vertical .tag { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.tag-remove {
+  flex: none;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.tag-remove:hover { background: var(--border); color: var(--danger); }
+
+/* タグを外す確認モーダルの本文 */
+.confirm-text { margin: 4px 0 8px; line-height: 1.8; }
+.confirm-sub { margin: 0 0 16px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6; }
 
 .tag {
   font-size: 0.68rem;

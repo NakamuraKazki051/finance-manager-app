@@ -60,3 +60,6 @@ export function tagColorClass(name: string): string {
   for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
   return TAG_COLORS[hash % TAG_COLORS.length];
 }
+
+// カードのタグを縦(一覧)に並べるか、横に並べるか
+export type TagLayout = "vertical" | "horizontal";
