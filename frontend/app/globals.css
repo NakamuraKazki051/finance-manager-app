@@ -856,7 +856,7 @@ kbd {
   .txn-row .txn-tags { justify-content: flex-start; }
 }
 
-/* カードのごみ箱ボタン。カードにマウスを乗せたときだけ濃くする */
+/* カードのごみ箱ボタン。カンバンでも一覧でも、最初からはっきり見えるようにする */
 .txn-delete {
   flex: none;
   display: inline-flex;
@@ -868,12 +868,8 @@ kbd {
   padding: 3px;
   border-radius: 4px;
   cursor: pointer;
-  opacity: 0.55;
 }
-.txn-card:hover .txn-delete,
-.txn-card:focus-within .txn-delete { opacity: 1; }
 .txn-delete:hover { background: var(--border); color: var(--danger); }
-@media (hover: none) { .txn-delete { opacity: 1; } }
 
 /* 確認モーダル(タグ・取引の削除)の本文 */
 .confirm-text { margin: 4px 0 8px; line-height: 1.8; }
