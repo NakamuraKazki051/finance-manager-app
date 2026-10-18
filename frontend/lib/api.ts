@@ -5,7 +5,8 @@ export type CategoryType = "INCOME" | "EXPENSE";
 
 export type User = { id: string; email: string; createdAt: string };
 export type Book = { id: string; name: string };
-export type Category = { id: string; bookId: string; name: string; type: CategoryType; displayOrder: number };
+// budget は支出カテゴリの月間予算(円)。未設定は null
+export type Category = { id: string; bookId: string; name: string; type: CategoryType; displayOrder: number; budget: number | null };
 export type Transaction = {
   id: string;
   bookId: string;

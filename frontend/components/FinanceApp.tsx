@@ -337,6 +337,16 @@ export default function FinanceApp() {
     }
   }
 
+  // budget が null なら予算を外す
+  async function setCategoryBudget(category: Category, budget: number | null) {
+    try {
+      await api.put(`/api/categories/${category.id}`, { budget });
+      await refreshCategories(category.bookId);
+    } catch {
+      /* エラーはバナー表示済み */
+    }
+  }
+
   async function toggleCategoryType(category: Category) {
     const next: CategoryType = otherType(category.type);
     if (!confirm(`「${category.name}」を${TYPE_LABEL[next]}のカテゴリに変更しますか?\nこのカテゴリの取引は、すべての月で${TYPE_LABEL[next]}として集計されます。`)) return;
@@ -478,7 +488,7 @@ export default function FinanceApp() {
       version: 1,
       book: books.find((b) => b.id === bookId)?.name,
       exportedAt: new Date().toISOString(),
-      categories: categories.map(({ id, name, type }) => ({ id, name, type })),
+      categories: categories.map(({ id, name, type, budget }) => ({ id, name, type, budget })),
       transactions: all.map(({ categoryId, amount, date, memo, tags }) => ({ categoryId, amount, date, memo: memo ?? "", tags })),
     };
     saveFile(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }), `finance-manager-backup-${localDateString()}.json`);
@@ -503,7 +513,7 @@ export default function FinanceApp() {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file || !bookId) return;
-    type ImportCategory = { id?: unknown; name?: unknown; type?: unknown };
+    type ImportCategory = { id?: unknown; name?: unknown; type?: unknown; budget?: unknown };
     type ImportTxn = { categoryId?: unknown; amount?: unknown; date?: unknown; memo?: unknown; tags?: unknown };
     let data: { categories?: ImportCategory[]; transactions?: ImportTxn[] };
     try {
@@ -535,6 +545,8 @@ export default function FinanceApp() {
       id: c && c.id != null ? String(c.id) : `cat-${idx}`,
       name: c && c.name ? String(c.name) : "無題のカテゴリ",
       type: c && c.type === "INCOME" ? "INCOME" : "EXPENSE",
+      // 予算の無い古いバックアップや、範囲外の値は「予算なし」として取り込む
+      budget: c && Number.isInteger(c.budget) && (c.budget as number) >= 1 && (c.budget as number) <= MAX_AMOUNT ? c.budget : null,
     }));
     const knownIds = new Set(importCategories.map((c) => c.id));
     const importTxns = data.transactions.map((t) => ({
@@ -760,6 +772,7 @@ export default function FinanceApp() {
           onMoveTransaction={moveTransaction}
           onRenameCategory={renameCategory}
           onToggleCategoryType={toggleCategoryType}
+          onSetBudget={setCategoryBudget}
           onMoveCategory={moveCategory}
           onDeleteCategory={deleteCategory}
           onAddCategory={addCategory}

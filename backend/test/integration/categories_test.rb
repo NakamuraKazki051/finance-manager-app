@@ -89,4 +89,37 @@ class CategoriesTest < ActionDispatch::IntegrationTest
     assert_equal "給与", after[1]["name"]
     assert_equal (0..5).to_a, after.map { |c| c["displayOrder"] }
   end
+
+  test "sets, changes and clears a monthly budget" do
+    food = categories_of(@book_id)[1]
+    assert_nil food["budget"]
+
+    put "/api/categories/#{food['id']}", params: { budget: 50_000 }, as: :json
+    assert_response :ok
+    assert_equal ["食費", 50_000], json_body.values_at("name", "budget")
+
+    # 名前だけ変えても予算は残る
+    put "/api/categories/#{food['id']}", params: { name: "食費・外食" }, as: :json
+    assert_equal 50_000, json_body["budget"]
+
+    put "/api/categories/#{food['id']}", params: { budget: nil }, as: :json
+    assert_response :ok
+    assert_nil json_body["budget"]
+    assert_nil categories_of(@book_id)[1]["budget"]
+
+    post "/api/books/#{@book_id}/categories", params: { name: "趣味", type: "EXPENSE", budget: 10_000 }, as: :json
+    assert_response :created
+    assert_equal 10_000, json_body["budget"]
+  end
+
+  test "rejects invalid budgets" do
+    food = categories_of(@book_id)[1]["id"]
+    [0, -1, 100_000_000, 1.5, "5000"].each do |budget|
+      put "/api/categories/#{food}", params: { budget: budget }, as: :json
+      assert_response :bad_request, "budget=#{budget.inspect}"
+    end
+    post "/api/books/#{@book_id}/categories", params: { name: "x", type: "EXPENSE", budget: 0 }, as: :json
+    assert_response :bad_request
+    assert_nil categories_of(@book_id)[1]["budget"]
+  end
 end

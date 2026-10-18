@@ -5,23 +5,24 @@ class CategoriesController < ApplicationController
     render json: ordered(params[:book_id]).map(&:as_api_json)
   end
 
-  # POST /api/books/:book_id/categories  {name, type}
+  # POST /api/books/:book_id/categories  {name, type, budget?}
   def create
     require_book!(params[:book_id], current_user_id!)
     name = category_name(params[:name])
     kind = category_kind(params[:type])
-    category = Category.create!(book_id: params[:book_id], name: name, kind: kind,
+    category = Category.create!(book_id: params[:book_id], name: name, kind: kind, budget: budget_value(params[:budget]),
                                 display_order: Category.where(book_id: params[:book_id]).count)
     render json: category.as_api_json, status: :created
   end
 
-  # PUT /api/categories/:id  {name?, type?}
+  # PUT /api/categories/:id  {name?, type?, budget?}。budget に null を送ると予算を外す
   # type を変えると、そのカテゴリの取引はすべての月で新しい種別として集計される
   def update
     category = find_owned_category!
     name = optional_string(params[:name], max: 30, too_long_message: "カテゴリ名は30文字以内で入力してください")
     category.name = name.strip if name.present?
     category.kind = category_kind(params[:type]) unless params[:type].nil?
+    category.budget = budget_value(params[:budget]) if params.key?(:budget)
     category.save!
     render json: category.as_api_json
   end
