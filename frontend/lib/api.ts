@@ -17,6 +17,8 @@ export type Transaction = {
   tags: string[];
   createdAt: string;
 };
+export type MonthTotal = { month: string; income: number; expense: number; balance: number };
+export type MonthlySummary = { from: string; to: string; months: MonthTotal[] };
 export type CategoryTotal = { categoryId: string; total: number; count: number };
 export type Summary = {
   month: string;

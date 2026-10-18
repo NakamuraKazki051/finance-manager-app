@@ -1118,3 +1118,75 @@ kbd {
   color: var(--text-muted);
   margin: -6px 0 12px;
 }
+
+/* --- 集計レポート(F-11) --- */
+.modal.modal-wide { max-width: 800px; }
+
+.report-section { margin-bottom: 20px; }
+.report-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.report-heading h3 { margin: 0; font-size: 1rem; }
+.report-tabs { display: flex; gap: 4px; }
+.report-empty { color: var(--text-muted); font-size: 0.9rem; margin: 8px 0; }
+
+.report-legend { display: flex; gap: 12px; font-size: 0.8rem; color: var(--text-muted); }
+.legend::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 4px;
+  vertical-align: -1px;
+}
+.legend.income::before { background: var(--income); }
+.legend.expense::before { background: var(--expense); }
+
+/* カテゴリ別の内訳: 名前 | 横棒 | 金額 | 割合 */
+.breakdown { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.breakdown-row {
+  display: grid;
+  grid-template-columns: minmax(5em, 9em) minmax(0, 1fr) 7.5em 3.8em;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.88rem;
+}
+.breakdown-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.breakdown-bar { height: 12px; border-radius: 999px; background: var(--border); overflow: hidden; }
+.breakdown-fill { display: block; height: 100%; border-radius: inherit; }
+.breakdown-fill.income { background: var(--income); }
+.breakdown-fill.expense { background: var(--expense); }
+.breakdown-amount, .breakdown-percent { text-align: right; font-variant-numeric: tabular-nums; }
+.breakdown-percent { color: var(--text-muted); }
+.breakdown-total { border-top: 1px solid var(--border); padding-top: 6px; font-weight: 700; }
+
+/* 12か月の推移 */
+.trend-chart { width: 100%; height: auto; display: block; }
+.trend-axis { stroke: var(--border); stroke-width: 1; }
+.trend-hit { fill: transparent; }
+.trend-month { cursor: pointer; outline: none; }
+.trend-month:hover .trend-hit,
+.trend-month:focus-visible .trend-hit { fill: var(--hover-overlay); }
+.trend-month.current .trend-hit { fill: var(--hover-overlay); }
+.trend-bar.income { fill: var(--income); }
+.trend-bar.expense { fill: var(--expense); }
+.trend-label { font-size: 12px; fill: var(--text-muted); }
+.trend-month.current .trend-label { fill: var(--text); font-weight: 700; }
+
+.trend-table-wrap { overflow-x: auto; margin-top: 6px; }
+.trend-table { border-collapse: collapse; font-size: 0.78rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.trend-table th, .trend-table td { padding: 3px 6px; text-align: right; }
+.trend-table th[scope="row"] { text-align: left; color: var(--text-muted); font-weight: 600; }
+.trend-table thead th { color: var(--text-muted); font-weight: 600; }
+.trend-table .current { font-weight: 700; color: var(--text); }
+.trend-table td.negative { color: var(--expense); }
+
+@media (max-width: 720px) {
+  .breakdown-row { grid-template-columns: minmax(4em, 6em) minmax(0, 1fr) 6.5em; }
+  .breakdown-percent { display: none; }
+}
