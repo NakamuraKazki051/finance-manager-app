@@ -334,6 +334,19 @@ kbd {
   box-shadow: 0 8px 24px rgba(9, 30, 66, 0.3);
 }
 .menu-panel button { width: 100%; text-align: left; }
+/* 「タグの並び: [縦] [横]」のような2択。選ばれている方は .active で塗る */
+.menu-choice {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.menu-choice-label {
+  flex: 1;
+  font-size: 0.85rem;
+  color: var(--text);
+  padding-left: 2px;
+}
+.menu-panel .menu-choice button { width: auto; min-width: 44px; text-align: center; }
 .menu-hint {
   margin: 4px 2px 0;
   font-size: 0.75rem;
@@ -756,16 +769,16 @@ kbd {
 /* メモが空のときはカテゴリ名を薄く出す */
 .txn-memo.empty { color: var(--text-muted); }
 
-/* カードのタグ。縦(一覧)か横並びかは「⚙ 設定・データ」で切り替える */
+/* カードのタグ。それぞれ「×」で外せる */
 .txn-tags {
   list-style: none;
   padding: 0;
   margin: 8px 0 0;
   display: flex;
-  gap: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
 }
-.txn-tags.vertical { flex-direction: column; align-items: stretch; }
-.txn-tags.horizontal { flex-wrap: wrap; align-items: center; gap: 5px; }
 
 .txn-tag-item {
   display: flex;
@@ -773,8 +786,6 @@ kbd {
   gap: 2px;
   min-width: 0;
 }
-.txn-tags.vertical .txn-tag-item { justify-content: space-between; }
-.txn-tags.vertical .tag { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .tag-remove {
   flex: none;
@@ -788,6 +799,61 @@ kbd {
   cursor: pointer;
 }
 .tag-remove:hover { background: var(--border); color: var(--danger); }
+
+/* 「カードの並び: 縦」の一覧。カテゴリの列をやめて、取引を1行ずつ並べる */
+.board.list-view {
+  display: block;
+  max-width: 880px;
+  margin: 0 auto;
+  overflow-x: visible;
+}
+.txn-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.txn-row {
+  display: grid;
+  grid-template-areas: "check date cat amount memo tags";
+  grid-template-columns: auto 3.2em 7em 7.5em minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+  cursor: pointer;
+}
+.txn-row .txn-select-check { grid-area: check; }
+.txn-row .txn-date { grid-area: date; }
+.txn-row .txn-row-category { grid-area: cat; }
+.txn-row .txn-amount { grid-area: amount; text-align: right; }
+.txn-row .txn-memo { grid-area: memo; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.txn-row .txn-tags { grid-area: tags; margin: 0; justify-content: flex-end; }
+.txn-row-category {
+  font-size: 0.82rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.txn-row-category.income { color: var(--income); }
+.txn-row-category.expense { color: var(--expense); }
+.list-add { margin-top: 10px; color: var(--text-oncolor); }
+.list-add:hover { background: rgba(255, 255, 255, 0.16); color: var(--text-oncolor); }
+.list-view .empty-hint { list-style: none; }
+
+/* 狭い画面では、日付・カテゴリ・金額の下にメモとタグを回す */
+@media (max-width: 720px) {
+  .txn-row {
+    grid-template-columns: auto 3.2em minmax(0, 1fr) auto;
+    grid-template-areas:
+      "check date cat amount"
+      "check memo memo memo"
+      "check tags tags tags";
+    row-gap: 4px;
+  }
+  .txn-row .txn-tags { justify-content: flex-start; }
+}
 
 /* タグを外す確認モーダルの本文 */
 .confirm-text { margin: 4px 0 8px; line-height: 1.8; }

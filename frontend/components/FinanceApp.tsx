@@ -24,11 +24,12 @@ import {
   shiftMonth,
   tagColorClass,
   TYPE_LABEL,
-  type TagLayout,
+  type BoardLayout,
 } from "@/lib/format";
 import { AccountModal, LoginModal, RegisterModal } from "./AuthModals";
 import { Board } from "./Board";
 import { Modal } from "./Modal";
+import { TransactionList } from "./TransactionList";
 import { TransactionModal, type TransactionInput } from "./TransactionModal";
 
 const CURRENT_BOOK_KEY = "finance-manager-app:currentBook";
@@ -48,9 +49,9 @@ const THEME_KEY = "finance-manager-app:theme";
 type Theme = "system" | "light" | "dark";
 const THEME_LABEL: Record<Theme, string> = { system: "🖥️ テーマ: 自動", light: "☀️ テーマ: ライト", dark: "🌙 テーマ: ダーク" };
 
-// カードのタグの並び(TagLayout)の記憶先
-const TAG_LAYOUT_KEY = "finance-manager-app:tagLayout";
-const TAG_LAYOUT_LABEL: Record<TagLayout, string> = { vertical: "🏷️ タグ: 縦に並べる", horizontal: "🏷️ タグ: 横に並べる" };
+// カードの並び(BoardLayout)の記憶先
+const BOARD_LAYOUT_KEY = "finance-manager-app:boardLayout";
+const BOARD_LAYOUT_LABEL: Record<BoardLayout, string> = { list: "縦", kanban: "横" };
 
 type AuthModal = "login" | "register" | "account" | null;
 type Filters = { q: string; tag: string; min: string; max: string };
@@ -115,7 +116,7 @@ export default function FinanceApp() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [menuOpen, setMenuOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>("system");
-  const [tagLayout, setTagLayout] = useState<TagLayout>("vertical");
+  const [boardLayout, setBoardLayout] = useState<BoardLayout>("kanban");
 
   const searchRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
@@ -164,16 +165,15 @@ export default function FinanceApp() {
     writeStorage(THEME_KEY, next);
   }
 
-  // --- タグの並び ---
+  // --- カードの並び ---
   useEffect(() => {
     // 保存済みの並びは画面を開いた直後に1回だけ反映する
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (readStorage(TAG_LAYOUT_KEY) === "horizontal") setTagLayout("horizontal");
+    if (readStorage(BOARD_LAYOUT_KEY) === "list") setBoardLayout("list");
   }, []);
-  function toggleTagLayout() {
-    const next: TagLayout = tagLayout === "vertical" ? "horizontal" : "vertical";
-    setTagLayout(next);
-    writeStorage(TAG_LAYOUT_KEY, next);
+  function changeBoardLayout(next: BoardLayout) {
+    setBoardLayout(next);
+    writeStorage(BOARD_LAYOUT_KEY, next);
   }
 
   // --- ログインと家計簿の読み込み ---
@@ -726,7 +726,17 @@ export default function FinanceApp() {
               }}>⚙ 設定・データ</summary>
               <div className="menu-panel">
                 <button type="button" className="btn-secondary" title="クリックでテーマを切り替え(自動→ライト→ダーク)" onClick={cycleTheme}>{THEME_LABEL[theme]}</button>
-                <button type="button" className="btn-secondary" title="クリックでカードのタグの並びを切り替え(縦⇔横)" onClick={toggleTagLayout}>{TAG_LAYOUT_LABEL[tagLayout]}</button>
+                {/* どちらが選ばれているか分かるよう、2択のボタンにして選択中の方を強調する */}
+                <div className="menu-choice" role="group" aria-label="カードの並び">
+                  <span className="menu-choice-label">🗂️ カードの並び</span>
+                  {(["list", "kanban"] as const).map((layout) => (
+                    <button key={layout} type="button" className={`btn-secondary${boardLayout === layout ? " active" : ""}`}
+                      aria-pressed={boardLayout === layout} onClick={() => changeBoardLayout(layout)}>
+                      {BOARD_LAYOUT_LABEL[layout]}
+                    </button>
+                  ))}
+                </div>
+                <p className="menu-hint">縦: 取引を1列の一覧で表示 / 横: カテゴリごとの列(カンバン)で表示</p>
                 <button type="button" className="btn-secondary" onClick={() => exportCsv("month")}>⬇ CSV（表示中の月）</button>
                 <button type="button" className="btn-secondary" onClick={() => exportCsv("all")}>⬇ CSV（全期間）</button>
                 <button type="button" className="btn-secondary" onClick={exportData}>⬇ エクスポート</button>
@@ -801,7 +811,19 @@ export default function FinanceApp() {
         </div>
       )}
 
-      {loggedIn ? (
+      {loggedIn && boardLayout === "list" ? (
+        <TransactionList
+          categories={categories}
+          transactions={visibleTxns}
+          filterActive={filterActive}
+          selectionMode={selectionMode}
+          selectedIds={selectedIds}
+          onOpenTransaction={setEditing}
+          onToggleSelected={toggleSelected}
+          onRemoveTag={(txn, tag) => setTagRemoval({ txn, tag })}
+          onAddTransaction={() => openNewTransaction()}
+        />
+      ) : loggedIn ? (
         <Board
           categories={categories}
           transactions={visibleTxns}
@@ -812,7 +834,6 @@ export default function FinanceApp() {
           selectedIds={selectedIds}
           onOpenTransaction={setEditing}
           onRemoveTag={(txn, tag) => setTagRemoval({ txn, tag })}
-          tagLayout={tagLayout}
           onAddTransaction={openNewTransaction}
           onToggleSelected={toggleSelected}
           onMoveTransaction={moveTransaction}

@@ -61,5 +61,5 @@ export function tagColorClass(name: string): string {
   return TAG_COLORS[hash % TAG_COLORS.length];
 }
 
-// カードのタグを縦(一覧)に並べるか、横に並べるか
-export type TagLayout = "vertical" | "horizontal";
+// カードを縦1列の一覧(list)で並べるか、カテゴリの列に横に並べる(kanban)か
+export type BoardLayout = "list" | "kanban";
