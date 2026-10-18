@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 
 // 背景をクリックすると閉じるモーダル。Esc で閉じる処理は FinanceApp でまとめて行う
-export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+export function Modal({ title, onClose, children, wide = false }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
   return (
     <div
       className="modal-overlay"
@@ -11,7 +11,7 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="modal" role="dialog" aria-modal="true" aria-label={title}>
+      <div className={`modal${wide ? " modal-wide" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
         <h2>{title}</h2>
         {children}
       </div>

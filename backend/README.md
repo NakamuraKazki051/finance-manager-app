@@ -77,6 +77,7 @@ MySQL コンテナが起動している必要があります。メモリの少�
 | DELETE | `/api/categories/:id` | カテゴリ削除（そのカテゴリの取引もすべての月の分を削除。最後の1つは不可） |
 | GET | `/api/books/:book_id/transactions?month=&tag=&q=&minAmount=&maxAmount=&sort=date\|amount` | 取引一覧。`month`（YYYY-MM）を省くと全期間。`q` はメモの部分一致。`sort=date`（既定）は日付の新しい順、`amount` は金額の大きい順 |
 | GET | `/api/books/:book_id/summary?month=YYYY-MM` | 月の収入合計・支出合計・残高（収入−支出）・件数と、カテゴリごとの合計（取引の無いカテゴリも0円で含む） |
+| GET | `/api/books/:book_id/summary/monthly?from=YYYY-MM&to=YYYY-MM` | 月ごとの収入合計・支出合計・残高（取引の無い月も0円で含め、古い月から）。期間は24か月まで。種別は取引の時点ではなく、カテゴリの今の種別で集計する |
 | POST | `/api/books/:book_id/transactions` | 取引登録 `{amount, date, categoryId, memo?, tags?}` |
 | GET | `/api/transactions/:id` | 取引取得 |
 | PUT | `/api/transactions/:id` | 取引更新（全項目） |

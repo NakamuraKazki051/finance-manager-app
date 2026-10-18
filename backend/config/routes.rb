@@ -16,6 +16,7 @@ Rails.application.routes.draw do
       resources :transactions, only: %i[index create]
       post "transactions/bulk-delete", to: "transactions#bulk_delete"
       get "summary", to: "summaries#show"
+      get "summary/monthly", to: "summaries#monthly"
       put "import", to: "book_imports#update"
       get "export.csv", to: "book_exports#show", format: false
     end

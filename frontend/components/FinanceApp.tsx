@@ -29,6 +29,7 @@ import {
 import { AccountModal, LoginModal, RegisterModal } from "./AuthModals";
 import { Board } from "./Board";
 import { ConfirmModal } from "./Modal";
+import { ReportModal } from "./ReportModal";
 import { TransactionList } from "./TransactionList";
 import { TransactionModal, type TransactionInput } from "./TransactionModal";
 
@@ -106,6 +107,7 @@ export default function FinanceApp() {
   const [editing, setEditing] = useState<Transaction | "new" | null>(null);
   // カードのごみ箱か、編集画面の「削除」を押したときの確認モーダル
   const [txnDeletion, setTxnDeletion] = useState<Transaction | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
   // カードのタグの × を押したときの確認モーダル
   const [tagRemoval, setTagRemoval] = useState<{ txn: Transaction; tag: string } | null>(null);
   // 列の「+ 取引を追加」から開いたときは、そのカテゴリを選んだ状態で開く
@@ -137,6 +139,7 @@ export default function FinanceApp() {
     setEditing(null);
     setTagRemoval(null);
     setTxnDeletion(null);
+    setReportOpen(false);
     setSelectionMode(false);
     setSelectedIds(new Set());
     setMonth(currentMonthString());
@@ -615,7 +618,7 @@ export default function FinanceApp() {
   }
 
   // --- キーボード操作 ---
-  const anyModalOpen = editing !== null || authModal !== null || tagRemoval !== null || txnDeletion !== null;
+  const anyModalOpen = editing !== null || authModal !== null || tagRemoval !== null || txnDeletion !== null || reportOpen;
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
@@ -625,6 +628,7 @@ export default function FinanceApp() {
         }
         if (txnDeletion) setTxnDeletion(null);
         else if (tagRemoval) setTagRemoval(null);
+        else if (reportOpen) setReportOpen(false);
         else if (editing) setEditing(null);
         else if (authModal) setAuthModal(null);
         else if (selectionMode) toggleSelectionMode(false);
@@ -644,7 +648,7 @@ export default function FinanceApp() {
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [editing, authModal, tagRemoval, txnDeletion, selectionMode, anyModalOpen, bookId]);
+  }, [editing, authModal, tagRemoval, txnDeletion, reportOpen, selectionMode, anyModalOpen, bookId]);
 
   // メニューの外をクリックしたら閉じる
   useEffect(() => {
@@ -725,6 +729,7 @@ export default function FinanceApp() {
             </select>
             <button type="button" className={`btn-secondary${selectionMode ? " active" : ""}`} aria-pressed={selectionMode}
               title="取引を複数選択してまとめて削除します" onClick={() => toggleSelectionMode(!selectionMode)}>☑ 選択</button>
+            <button type="button" className="btn-secondary" title="カテゴリ別の内訳と12か月の推移をグラフで見る" onClick={() => setReportOpen(true)}>📊 レポート</button>
             {/* 使用頻度の低い設定・データ操作はメニューにまとめ、ヘッダーのボタン数を減らす */}
             <details ref={menuRef} className="menu" open={menuOpen}>
               <summary className="btn-secondary" onClick={(e) => {
@@ -887,6 +892,10 @@ export default function FinanceApp() {
           onSave={saveTransaction}
           onDelete={() => editing !== "new" && setTxnDeletion(editing)}
         />
+      )}
+      {reportOpen && bookId && (
+        <ReportModal bookId={bookId} month={month} categories={categories} summary={summary}
+          onSelectMonth={changeMonth} onClose={() => setReportOpen(false)} />
       )}
       {txnDeletion && (
         <ConfirmModal title="取引を削除" onConfirm={deleteTransaction} onCancel={() => setTxnDeletion(null)}>
