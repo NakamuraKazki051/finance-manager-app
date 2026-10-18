@@ -2,6 +2,7 @@
 
 import { useState, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
 import type { Category, CategoryType, Summary, Transaction } from "@/lib/api";
+import { TrashIcon } from "./Icons";
 import { formatMonthLabel, formatTxnDate, formatYen, MAX_AMOUNT, otherType, tagColorClass, TYPE_LABEL } from "@/lib/format";
 
 const CATEGORY_DRAG_TYPE = "application/x-category-id";
@@ -18,6 +19,7 @@ type BoardProps = {
   onOpenTransaction: (txn: Transaction) => void;
   onAddTransaction: (categoryId: string) => void;
   onRemoveTag: (txn: Transaction, tag: string) => void;
+  onDeleteTransaction: (txn: Transaction) => void;
   onToggleSelected: (id: string) => void;
   onMoveTransaction: (txnId: string, categoryId: string) => void;
   onRenameCategory: (category: Category, name: string) => void;
@@ -343,6 +345,7 @@ function TransactionCard(props: ColumnProps & { txn: Transaction }) {
           {formatYen(txn.amount)}
         </span>
         <span className="txn-date">{formatTxnDate(txn.date)}</span>
+        {!selectionMode && <DeleteTxnButton onClick={() => props.onDeleteTransaction(txn)} />}
       </div>
       {/* メモが空のときはカテゴリ名を薄く出す */}
       <div className={`txn-memo${txn.memo ? "" : " empty"}`}>{txn.memo || category.name}</div>
@@ -422,5 +425,25 @@ export function TagList({ txn, selectionMode, onRemoveTag }: {
         </li>
       ))}
     </ul>
+  );
+}
+
+// 取引カードのごみ箱ボタン。押すと確認のモーダルが出る(カードを開く・ドラッグする操作とは分ける)
+export function DeleteTxnButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className="txn-delete"
+      aria-label="この取引を削除"
+      title="この取引を削除"
+      draggable={false}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      onKeyDown={(e) => e.stopPropagation()}
+    >
+      <TrashIcon />
+    </button>
   );
 }

@@ -28,7 +28,7 @@ import {
 } from "@/lib/format";
 import { AccountModal, LoginModal, RegisterModal } from "./AuthModals";
 import { Board } from "./Board";
-import { Modal } from "./Modal";
+import { ConfirmModal } from "./Modal";
 import { TransactionList } from "./TransactionList";
 import { TransactionModal, type TransactionInput } from "./TransactionModal";
 
@@ -104,6 +104,8 @@ export default function FinanceApp() {
   const [summary, setSummary] = useState<Summary | null>(null);
 
   const [editing, setEditing] = useState<Transaction | "new" | null>(null);
+  // カードのごみ箱か、編集画面の「削除」を押したときの確認モーダル
+  const [txnDeletion, setTxnDeletion] = useState<Transaction | null>(null);
   // カードのタグの × を押したときの確認モーダル
   const [tagRemoval, setTagRemoval] = useState<{ txn: Transaction; tag: string } | null>(null);
   // 列の「+ 取引を追加」から開いたときは、そのカテゴリを選んだ状態で開く
@@ -134,6 +136,7 @@ export default function FinanceApp() {
     setSummary(null);
     setEditing(null);
     setTagRemoval(null);
+    setTxnDeletion(null);
     setSelectionMode(false);
     setSelectedIds(new Set());
     setMonth(currentMonthString());
@@ -467,13 +470,16 @@ export default function FinanceApp() {
   }
 
   async function deleteTransaction() {
-    if (!editing || editing === "new" || !confirm("この取引を削除しますか?")) return;
+    if (!txnDeletion) return;
+    const id = txnDeletion.id;
     try {
-      await api.delete(`/api/transactions/${editing.id}`);
+      await api.delete(`/api/transactions/${id}`);
     } catch {
       return;
     }
-    setEditing(null);
+    setTxnDeletion(null);
+    // 編集画面から消したときは、その編集画面も閉じる
+    setEditing((current) => (current && current !== "new" && current.id === id ? null : current));
     reload();
   }
 
@@ -609,7 +615,7 @@ export default function FinanceApp() {
   }
 
   // --- キーボード操作 ---
-  const anyModalOpen = editing !== null || authModal !== null || tagRemoval !== null;
+  const anyModalOpen = editing !== null || authModal !== null || tagRemoval !== null || txnDeletion !== null;
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
@@ -617,7 +623,8 @@ export default function FinanceApp() {
           setMenuOpen(false);
           return;
         }
-        if (tagRemoval) setTagRemoval(null);
+        if (txnDeletion) setTxnDeletion(null);
+        else if (tagRemoval) setTagRemoval(null);
         else if (editing) setEditing(null);
         else if (authModal) setAuthModal(null);
         else if (selectionMode) toggleSelectionMode(false);
@@ -637,7 +644,7 @@ export default function FinanceApp() {
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [editing, authModal, tagRemoval, selectionMode, anyModalOpen, bookId]);
+  }, [editing, authModal, tagRemoval, txnDeletion, selectionMode, anyModalOpen, bookId]);
 
   // メニューの外をクリックしたら閉じる
   useEffect(() => {
@@ -821,6 +828,7 @@ export default function FinanceApp() {
           onOpenTransaction={setEditing}
           onToggleSelected={toggleSelected}
           onRemoveTag={(txn, tag) => setTagRemoval({ txn, tag })}
+          onDeleteTransaction={setTxnDeletion}
           onAddTransaction={() => openNewTransaction()}
         />
       ) : loggedIn ? (
@@ -834,6 +842,7 @@ export default function FinanceApp() {
           selectedIds={selectedIds}
           onOpenTransaction={setEditing}
           onRemoveTag={(txn, tag) => setTagRemoval({ txn, tag })}
+          onDeleteTransaction={setTxnDeletion}
           onAddTransaction={openNewTransaction}
           onToggleSelected={toggleSelected}
           onMoveTransaction={moveTransaction}
@@ -856,7 +865,7 @@ export default function FinanceApp() {
       )}
 
       {tagRemoval && (
-        <Modal title="タグを削除" onClose={() => setTagRemoval(null)}>
+        <ConfirmModal title="タグを削除" onConfirm={removeTag} onCancel={() => setTagRemoval(null)}>
           <p className="confirm-text">
             この取引からタグ「<span className={`tag ${tagColorClass(tagRemoval.tag)}`}>{tagRemoval.tag}</span>」を外しますか?
           </p>
@@ -864,13 +873,7 @@ export default function FinanceApp() {
             {tagRemoval.txn.date.replaceAll("-", "/")} {formatYen(tagRemoval.txn.amount)} {tagRemoval.txn.memo ?? ""}
             <br />取引そのものと、他の取引のタグは消えません。
           </p>
-          <div className="modal-actions">
-            <div className="modal-actions-right">
-              <button type="button" className="btn-secondary" onClick={() => setTagRemoval(null)}>キャンセル</button>
-              <button type="button" className="btn-danger" autoFocus onClick={removeTag}>削除する</button>
-            </div>
-          </div>
-        </Modal>
+        </ConfirmModal>
       )}
 
       {editing && (
@@ -882,8 +885,18 @@ export default function FinanceApp() {
           defaultCategoryId={editing === "new" ? newCategoryId : null}
           onClose={() => setEditing(null)}
           onSave={saveTransaction}
-          onDelete={deleteTransaction}
+          onDelete={() => editing !== "new" && setTxnDeletion(editing)}
         />
+      )}
+      {txnDeletion && (
+        <ConfirmModal title="取引を削除" onConfirm={deleteTransaction} onCancel={() => setTxnDeletion(null)}>
+          <p className="confirm-text">この取引を削除しますか?</p>
+          <p className="confirm-sub">
+            {txnDeletion.date.replaceAll("-", "/")} {categories.find((c) => c.id === txnDeletion.categoryId)?.name ?? ""}{" "}
+            {formatYen(txnDeletion.amount)} {txnDeletion.memo ?? ""}
+            <br />削除すると元に戻せません。
+          </p>
+        </ConfirmModal>
       )}
       {authModal === "login" && <LoginModal onClose={() => setAuthModal(null)} onSignedIn={handleSignedIn} />}
       {authModal === "register" && (
