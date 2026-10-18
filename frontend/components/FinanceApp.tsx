@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import {
   api,
+  apiDownload,
   fetchCurrentUser,
   setApiListeners,
   type Book,
@@ -28,6 +29,18 @@ import { Board } from "./Board";
 import { TransactionModal, type TransactionInput } from "./TransactionModal";
 
 const CURRENT_BOOK_KEY = "finance-manager-app:currentBook";
+
+// ブラウザのダウンロードとして保存させる
+function saveFile(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 const THEME_KEY = "finance-manager-app:theme";
 type Theme = "system" | "light" | "dark";
 const THEME_LABEL: Record<Theme, string> = { system: "🖥️ テーマ: 自動", light: "☀️ テーマ: ライト", dark: "🌙 テーマ: ダーク" };
@@ -468,14 +481,22 @@ export default function FinanceApp() {
       categories: categories.map(({ id, name, type }) => ({ id, name, type })),
       transactions: all.map(({ categoryId, amount, date, memo, tags }) => ({ categoryId, amount, date, memo: memo ?? "", tags })),
     };
-    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `finance-manager-backup-${localDateString()}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    saveFile(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }), `finance-manager-backup-${localDateString()}.json`);
+  }
+
+  // CSV はサーバーで作る(Excel で開けるよう BOM 付き UTF-8)。表示中の月か全期間かを選ぶ
+  async function exportCsv(scope: "month" | "all") {
+    setMenuOpen(false);
+    if (!bookId) return;
+    const query = scope === "month" ? `?month=${month}` : "";
+    let blob: Blob;
+    try {
+      blob = await apiDownload(`/api/books/${bookId}/export.csv${query}`);
+    } catch {
+      return;
+    }
+    const bookName = books.find((b) => b.id === bookId)?.name ?? "家計簿";
+    saveFile(blob, `${bookName}_${scope === "month" ? month : "全期間"}.csv`);
   }
 
   async function handleImportFile(e: ChangeEvent<HTMLInputElement>) {
@@ -650,6 +671,8 @@ export default function FinanceApp() {
               }}>⚙ 設定・データ</summary>
               <div className="menu-panel">
                 <button type="button" className="btn-secondary" title="クリックでテーマを切り替え(自動→ライト→ダーク)" onClick={cycleTheme}>{THEME_LABEL[theme]}</button>
+                <button type="button" className="btn-secondary" onClick={() => exportCsv("month")}>⬇ CSV（表示中の月）</button>
+                <button type="button" className="btn-secondary" onClick={() => exportCsv("all")}>⬇ CSV（全期間）</button>
                 <button type="button" className="btn-secondary" onClick={exportData}>⬇ エクスポート</button>
                 <button type="button" className="btn-secondary" onClick={() => {
                   setMenuOpen(false);

@@ -17,6 +17,7 @@ Rails.application.routes.draw do
       post "transactions/bulk-delete", to: "transactions#bulk_delete"
       get "summary", to: "summaries#show"
       put "import", to: "book_imports#update"
+      get "export.csv", to: "book_exports#show", format: false
     end
 
     resources :categories, only: %i[update destroy] do
