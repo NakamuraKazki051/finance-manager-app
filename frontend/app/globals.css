@@ -716,6 +716,7 @@ kbd {
   padding: 10px 12px 11px;
   cursor: grab;
   box-shadow: var(--card-shadow);
+  position: relative;
 }
 
 @media (hover: hover) {
@@ -870,6 +871,9 @@ kbd {
   cursor: pointer;
 }
 .txn-delete:hover { background: var(--border); color: var(--danger); }
+/* カンバンのカードでは右上の角に重ねる。日付がボタンの下に潜らないよう、見出し行の右に余白を取る */
+.txn-card:not(.txn-row) > .txn-delete { position: absolute; top: 6px; right: 6px; }
+.txn-card:not(.txn-row) > .txn-card-head { padding-right: 22px; }
 
 /* 確認モーダル(タグ・取引の削除)の本文 */
 .confirm-text { margin: 4px 0 8px; line-height: 1.8; }
