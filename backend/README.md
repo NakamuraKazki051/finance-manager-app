@@ -69,6 +69,7 @@ MySQL コンテナが起動している必要があります。メモリの少�
 | PUT | `/api/books/:id` | 家計簿名変更 `{name}` |
 | DELETE | `/api/books/:id` | 家計簿削除（そのカテゴリ・取引も削除。最後の1冊は不可） |
 | PUT | `/api/books/:book_id/import` | 家計簿のカテゴリ・取引をJSONで全置換 `{categories, transactions}` |
+| GET | `/api/books/:book_id/export.csv?month=YYYY-MM` | 取引のCSV（BOM付きUTF-8・CRLF、日付の古い順）。`month` を省くと全期間。`=` `+` `-` `@` で始まる値は先頭に `'` を付けて数式として実行されないようにする |
 | GET | `/api/books/:book_id/categories` | カテゴリ一覧（表示順） |
 | POST | `/api/books/:book_id/categories` | カテゴリ作成 `{name, type}` |
 | PUT | `/api/categories/:id` | カテゴリ更新 `{name?, type?}`（`type` を変えると、そのカテゴリの取引はすべての月で新しい種別として集計される） |

@@ -45,11 +45,9 @@ export function setApiListeners(next: Listeners) {
   listeners = next;
 }
 
-// 失敗したらエラーバナーを出したうえで ApiError を投げる。呼び出し側は catch して処理を止めるだけでよい
-export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  let res: Response;
+async function send(path: string, options: RequestInit): Promise<Response> {
   try {
-    res = await fetch(path, {
+    return await fetch(path, {
       ...options,
       headers: { "Content-Type": "application/json", ...options.headers },
       credentials: "same-origin",
@@ -59,6 +57,22 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
     listeners.onError(message);
     throw new ApiError(0, message);
   }
+}
+
+function fail(res: Response, data: unknown): never {
+  const message =
+    data && typeof data === "object" && "message" in data && typeof data.message === "string"
+      ? data.message
+      : `リクエストに失敗しました (${res.status})`;
+  // 別の端末でパスワードが変更されたなどでセッションが切れたら、ログアウト状態の画面に戻す
+  if (res.status === 401) listeners.onUnauthorized();
+  listeners.onError(message);
+  throw new ApiError(res.status, message);
+}
+
+// 失敗したらエラーバナーを出したうえで ApiError を投げる。呼び出し側は catch して処理を止めるだけでよい
+export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await send(path, options);
 
   let data: unknown = null;
   if (res.status !== 204) {
@@ -69,19 +83,17 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
     }
   }
 
-  if (!res.ok) {
-    const message =
-      data && typeof data === "object" && "message" in data && typeof data.message === "string"
-        ? data.message
-        : `リクエストに失敗しました (${res.status})`;
-    // 別の端末でパスワードが変更されたなどでセッションが切れたら、ログアウト状態の画面に戻す
-    if (res.status === 401) listeners.onUnauthorized();
-    listeners.onError(message);
-    throw new ApiError(res.status, message);
-  }
-
+  if (!res.ok) fail(res, data);
   listeners.onSuccess();
   return data as T;
+}
+
+// CSV などのファイルを受け取る。失敗時の扱いは apiFetch と同じ(エラーの本文は JSON で返ってくる)
+export async function apiDownload(path: string): Promise<Blob> {
+  const res = await send(path, {});
+  if (!res.ok) fail(res, await res.json().catch(() => null));
+  listeners.onSuccess();
+  return res.blob();
 }
 
 export const api = {
