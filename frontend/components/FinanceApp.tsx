@@ -147,6 +147,10 @@ export default function FinanceApp() {
     setRecurringOpen(false);
     setSelectionMode(false);
     setSelectedIds(new Set());
+    // 次にログインした人に、前の人の検索・絞り込み・並び替えを残さない
+    setFilters(EMPTY_FILTERS);
+    setAppliedFilters(EMPTY_FILTERS);
+    setSort("date");
     setMonth(currentMonthString());
   }, []);
 
@@ -241,7 +245,8 @@ export default function FinanceApp() {
     setCategories(cats);
   }, []);
 
-  // 家計簿を開いたら、月が変わって作っていない固定費(F-12)の取引をサーバーに作らせる。
+  // 家計簿を開いたときと表示する月を変えたときに、月が変わって作っていない固定費(F-12)の取引をサーバーに作らせる
+  // (画面を開いたまま月をまたいでも、「今月」や ▶ で移れば新しい月の分ができる)。
   // 二重に作らない判定はサーバー側で行う。作られたら、表示中の取引と集計を取り直す
   useEffect(() => {
     if (!bookId) return;
@@ -257,7 +262,7 @@ export default function FinanceApp() {
     return () => {
       stale = true;
     };
-  }, [bookId, reload]);
+  }, [bookId, month, reload]);
 
   // --- 表示中の月の取引と集計 ---
   useEffect(() => {
@@ -363,7 +368,7 @@ export default function FinanceApp() {
       return;
     }
     const book = books.find((b) => b.id === bookId);
-    if (!book || !confirm(`家計簿「${book.name}」を削除しますか?この家計簿のカテゴリと取引もすべて削除されます。`)) return;
+    if (!book || !confirm(`家計簿「${book.name}」を削除しますか?この家計簿のカテゴリ・取引・固定費もすべて削除されます。`)) return;
     try {
       await api.delete(`/api/books/${book.id}`);
     } catch {
@@ -432,7 +437,8 @@ export default function FinanceApp() {
       monthCount > 0
         ? `\nこのカテゴリの取引(${formatMonthLabel(month)}の${monthCount}件を含む、すべての月の分)も削除されます。この操作は取り消せません。`
         : "\nこのカテゴリの取引が他の月にあれば、それも削除されます。この操作は取り消せません。";
-    if (!confirm(`カテゴリ「${category.name}」を削除しますか?${detail}`)) return;
+    // このカテゴリの固定費もサーバーで一緒に消える(残すと、消えたカテゴリの取引を作り続けるため)
+    if (!confirm(`カテゴリ「${category.name}」を削除しますか?${detail}\nこのカテゴリの固定費(🔁)があれば、それも削除されます。`)) return;
     try {
       await api.delete(`/api/categories/${category.id}`);
       await refreshCategories(category.bookId);
@@ -668,6 +674,8 @@ export default function FinanceApp() {
       }));
     try {
       await api.put(`/api/books/${bookId}/import`, { categories: importCategories, transactions: importTxns, recurring: importRules });
+      // 取り込んだ固定費に、まだ作っていない月があればすぐに作る(家計簿は開いたままなので、開いたときの処理は走らない)
+      await api.post(`/api/books/${bookId}/recurring-transactions/generate`);
       await refreshCategories(bookId);
     } catch {
       return;

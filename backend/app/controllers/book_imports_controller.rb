@@ -41,6 +41,16 @@ class BookImportsController < ApplicationController
                        elsif start_month <= current_month
                          current_month
                        end
+      # 開始月より前の月を作り済みにすると、開始月より前の取引が作られてしまう
+      if last_generated && last_generated < start_month.prev_month
+        raise ApiError.bad_request("固定費の作り済みの月が開始月より前になっています: #{r[:lastGeneratedMonth]}")
+      end
+      # 古すぎる作り済みの月(手で書き換えたファイルなど)で、次に開いたときに何千件も作らないよう、
+      # さかのぼって作るのは固定費を登録するときと同じく12か月前までにする
+      oldest_to_generate = current_month << RecurringTransactionsController::START_MONTH_RANGE
+      if (last_generated ? last_generated.next_month : start_month) < oldest_to_generate
+        last_generated = oldest_to_generate.prev_month
+      end
       {
         old_id: r[:id]&.to_s,
         old_category_id: r[:categoryId],
