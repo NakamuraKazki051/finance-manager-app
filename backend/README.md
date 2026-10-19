@@ -50,7 +50,7 @@ MySQL コンテナが起動している必要があります。メモリの少�
 - ID は推測されにくい UUID の文字列
 - 月の一覧・集計は `(book_id, transaction_date)` のインデックスで引き、合計は DB の `SUM` で出す（画面の合計と API の集計が1円もずれない）
 - 子の行は親への外部キーを持たないので、家計簿・カテゴリを消すときはコントローラーで取引・カテゴリ・固定費を明示的に消す
-- 固定費の取引は定期実行ではなく、画面が家計簿を開いたときの `generate` で今月の分まで作る（EC2 を使うときだけ起動するため）。「今月」は日本時間で決める
+- 固定費の取引は定期実行ではなく、画面が家計簿を開いたとき・表示する月を変えたとき・インポートしたときの `generate` で今月の分まで作る（EC2 を使うときだけ起動するため）。「今月」は日本時間で決める
 
 ## エンドポイント
 
@@ -70,7 +70,7 @@ MySQL コンテナが起動している必要があります。メモリの少�
 | POST | `/api/books/ensure-default` | 家計簿が1冊も無ければ「家計簿」と初期カテゴリ（給与/食費/日用品/交通費/住居・光熱費/その他）を作成し、一覧を返す。ユーザー行をロックするので、同時に呼ばれても1冊しか作らない |
 | PUT | `/api/books/:id` | 家計簿名変更 `{name}` |
 | DELETE | `/api/books/:id` | 家計簿削除（そのカテゴリ・取引・固定費も削除。最後の1冊は不可） |
-| PUT | `/api/books/:book_id/import` | 家計簿のカテゴリ・取引・固定費をJSONで全置換 `{categories: [{id, name, type, budget?}], transactions, recurring?}`。取引の `confirmed` を省いた古いバックアップは確定として取り込む。固定費の `lastGeneratedMonth` を省くと、今月までは作り済みとして取り込む |
+| PUT | `/api/books/:book_id/import` | 家計簿のカテゴリ・取引・固定費をJSONで全置換 `{categories: [{id, name, type, budget?}], transactions, recurring?}`。取引の `confirmed` を省いた古いバックアップは確定として取り込む。固定費の `lastGeneratedMonth` を省くと、今月までは作り済みとして取り込む。開始月より前の `lastGeneratedMonth` は 400。さかのぼって作るのは12か月前の月までにする |
 | GET | `/api/books/:book_id/export.csv?month=YYYY-MM` | 取引のCSV（BOM付きUTF-8・CRLF、日付の古い順）。列は日付・種別・カテゴリ・金額・メモ・タグ・状態（確定/予定）。`month` を省くと全期間。`=` `+` `-` `@` で始まる値は先頭に `'` を付けて数式として実行されないようにする |
 | GET | `/api/books/:book_id/categories` | カテゴリ一覧（表示順） |
 | POST | `/api/books/:book_id/categories` | カテゴリ作成 `{name, type, budget?}` |

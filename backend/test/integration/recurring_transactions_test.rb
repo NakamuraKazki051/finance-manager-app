@@ -229,4 +229,40 @@ class RecurringTransactionsTest < ActionDispatch::IntegrationTest
     assert_equal ["住居"], categories_of(@book_id).map { |c| c["name"] }
     assert_equal 1, RecurringEntry.where(book_id: @book_id).count
   end
+
+  test "import rejects a generated month before the start month" do
+    backup = {
+      categories: [{ id: "c1", name: "住居", type: "EXPENSE" }],
+      transactions: [],
+      recurring: [{ id: "r1", categoryId: "c1", amount: 1000, day: 1, startMonth: "2026-06", lastGeneratedMonth: "2026-04" }]
+    }
+    put "/api/books/#{@book_id}/import", params: backup, as: :json
+    assert_response :bad_request
+    assert_equal 0, RecurringEntry.where(book_id: @book_id).count
+
+    # 開始月の前の月までを作り済みにするのは、まだ1か月も作っていない状態なのでよい
+    backup[:recurring][0][:lastGeneratedMonth] = "2026-05"
+    put "/api/books/#{@book_id}/import", params: backup, as: :json
+    assert_response :no_content
+    assert_equal 5, generate
+  end
+
+  test "import catches up at most 12 months, however old the generated month is" do
+    backup = {
+      categories: [{ id: "c1", name: "住居", type: "EXPENSE" }],
+      transactions: [],
+      recurring: [
+        { id: "r1", categoryId: "c1", amount: 1000, day: 1, startMonth: "1900-01", lastGeneratedMonth: "1900-01" },
+        { id: "r2", categoryId: "c1", amount: 2000, day: 1, startMonth: "2020-01", lastGeneratedMonth: "2020-01" }
+      ]
+    }
+    put "/api/books/#{@book_id}/import", params: backup, as: :json
+    assert_response :no_content
+
+    # 2025-10 から 2026-10 まで(12か月前〜今月)の13か月分ずつ
+    assert_equal 26, generate
+    dates = list_transactions(@book_id).map { |t| t["date"] }
+    assert_equal "2025-10-01", dates.min
+    assert_equal "2026-10-01", dates.max
+  end
 end
