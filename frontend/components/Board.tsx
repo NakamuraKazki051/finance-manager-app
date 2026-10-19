@@ -20,6 +20,7 @@ type BoardProps = {
   onAddTransaction: (categoryId: string) => void;
   onRemoveTag: (txn: Transaction, tag: string) => void;
   onDeleteTransaction: (txn: Transaction) => void;
+  onToggleConfirmed: (txn: Transaction) => void;
   onToggleSelected: (id: string) => void;
   onMoveTransaction: (txnId: string, categoryId: string) => void;
   onRenameCategory: (category: Category, name: string) => void;
@@ -34,16 +35,20 @@ export function Board(props: BoardProps) {
   const { categories, transactions, summary } = props;
   return (
     <main className="board">
-      {categories.map((category, index) => (
-        <CategoryColumn
-          key={category.id}
-          {...props}
-          category={category}
-          index={index}
-          total={summary?.categories.find((c) => c.categoryId === category.id)?.total ?? 0}
-          columnTransactions={transactions.filter((t) => t.categoryId === category.id)}
-        />
-      ))}
+      {categories.map((category, index) => {
+        const totals = summary?.categories.find((c) => c.categoryId === category.id);
+        return (
+          <CategoryColumn
+            key={category.id}
+            {...props}
+            category={category}
+            index={index}
+            total={totals?.total ?? 0}
+            plannedTotal={totals?.plannedTotal ?? 0}
+            columnTransactions={transactions.filter((t) => t.categoryId === category.id)}
+          />
+        );
+      })}
       <AddCategoryColumn onAdd={props.onAddCategory} />
     </main>
   );
@@ -52,12 +57,14 @@ export function Board(props: BoardProps) {
 type ColumnProps = BoardProps & {
   category: Category;
   index: number;
+  // total は確定の取引の合計、plannedTotal は予定の取引の合計(どちらもサーバーの集計)
   total: number;
+  plannedTotal: number;
   columnTransactions: Transaction[];
 };
 
 function CategoryColumn(props: ColumnProps) {
-  const { category, index, categories, total, columnTransactions, month } = props;
+  const { category, index, categories, total, plannedTotal, columnTransactions, month } = props;
   const [editing, setEditing] = useState(false);
   const [dropTarget, setDropTarget] = useState<"card" | "column" | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -145,10 +152,18 @@ function CategoryColumn(props: ColumnProps) {
         >
           {TYPE_LABEL[category.type]}
         </button>
-        <span className="column-total-amount" title={`${formatMonthLabel(month)}の合計`}>{formatYen(total)}</span>
+        <span className="column-total-amounts">
+          <span className="column-total-amount" title={`${formatMonthLabel(month)}の合計(確定した取引)`}>{formatYen(total)}</span>
+          {plannedTotal > 0 && (
+            <span className="column-planned" title={`${formatMonthLabel(month)}の予定の取引の合計(合計には入っていません)`}>
+              予定 {formatYen(plannedTotal)}
+            </span>
+          )}
+        </span>
       </div>
       {category.type === "EXPENSE" && (
-        <BudgetRow budget={category.budget} spent={total} month={month} onSave={(budget) => props.onSetBudget(category, budget)} />
+        <BudgetRow budget={category.budget} spent={total} planned={plannedTotal} month={month}
+          onSave={(budget) => props.onSetBudget(category, budget)} />
       )}
       <div className="card-list">
         {columnTransactions.length === 0 && (
@@ -168,10 +183,11 @@ function CategoryColumn(props: ColumnProps) {
   );
 }
 
-type BudgetRowProps = { budget: number | null; spent: number; month: string; onSave: (budget: number | null) => void };
+type BudgetRowProps = { budget: number | null; spent: number; planned: number; month: string; onSave: (budget: number | null) => void };
 
-// 支出カテゴリの月間予算。表示中の月の合計と比べて残りを出し、超えたら赤くする
-function BudgetRow({ budget, spent, month, onSave }: BudgetRowProps) {
+// 支出カテゴリの月間予算。表示中の月の(確定した)合計と比べて残りを出し、超えたら赤くする。
+// 予定の支出があれば、それも払ったときの残りを下に添える
+function BudgetRow({ budget, spent, planned, month, onSave }: BudgetRowProps) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
   const [error, setError] = useState(false);
@@ -255,6 +271,11 @@ function BudgetRow({ budget, spent, month, onSave }: BudgetRowProps) {
         aria-valuenow={Math.round(ratio * 100)}>
         <div className="budget-bar-fill" style={{ width: `${ratio * 100}%` }} />
       </div>
+      {planned > 0 && (
+        <div className={`budget-planned${remaining - planned < 0 ? " over" : ""}`}>
+          予定を含めると{remaining - planned < 0 ? ` ${formatYen(planned - remaining)} 超過` : `残り ${formatYen(remaining - planned)}`}
+        </div>
+      )}
     </div>
   );
 }
@@ -308,6 +329,7 @@ function TransactionCard(props: ColumnProps & { txn: Transaction }) {
   }
 
   const classNames = ["txn-card"];
+  if (!txn.confirmed) classNames.push("planned");
   if (selectionMode) classNames.push("selectable");
   if (selected) classNames.push("selected");
   if (dragging) classNames.push("dragging");
@@ -318,7 +340,7 @@ function TransactionCard(props: ColumnProps & { txn: Transaction }) {
       role="button"
       tabIndex={0}
       aria-pressed={selectionMode ? selected : undefined}
-      aria-label={`${txn.date} ${category.name} ${TYPE_LABEL[category.type]} ${formatYen(txn.amount)} ${txn.memo ?? ""}`}
+      aria-label={txnLabel(txn, category)}
       draggable={!selectionMode}
       onClick={activate}
       onKeyDown={handleKeyDown}
@@ -351,7 +373,29 @@ function TransactionCard(props: ColumnProps & { txn: Transaction }) {
       {/* メモが空のときはカテゴリ名を薄く出す */}
       <div className={`txn-memo${txn.memo ? "" : " empty"}`}>{txn.memo || category.name}</div>
       <TagList txn={txn} selectionMode={selectionMode} onRemoveTag={props.onRemoveTag} />
+      {!selectionMode && <ConfirmToggle txn={txn} onToggle={props.onToggleConfirmed} />}
     </div>
+  );
+}
+
+// 読み上げ用のカードの説明。予定の取引はそのことも伝える
+export function txnLabel(txn: Transaction, category: Category) {
+  return `${txn.confirmed ? "" : "予定 "}${txn.date} ${category.name} ${TYPE_LABEL[category.type]} ${formatYen(txn.amount)} ${txn.memo ?? ""}`;
+}
+
+// 取引の「確定」チェック(F-13)。外すと予定になり、月の収入・支出・残高から外れる。カンバンと一覧の両方で使う
+export function ConfirmToggle({ txn, onToggle }: { txn: Transaction; onToggle: (txn: Transaction) => void }) {
+  return (
+    <label
+      className={`confirm-toggle${txn.confirmed ? "" : " planned"}`}
+      title={txn.confirmed ? "チェックを外すと予定に戻します" : "チェックすると確定します(月の合計に入ります)"}
+      draggable={false}
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
+    >
+      <input type="checkbox" checked={txn.confirmed} onChange={() => onToggle(txn)} />
+      <span>{txn.confirmed ? "確定" : "予定"}</span>
+    </label>
   );
 }
 

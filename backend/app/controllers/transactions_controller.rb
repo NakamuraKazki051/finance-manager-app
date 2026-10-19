@@ -1,16 +1,21 @@
 # 取引(Entry モデル)の API
 class TransactionsController < ApplicationController
-  # GET /api/books/:book_id/transactions?month=&tag=&q=&minAmount=&maxAmount=&sort=date|amount
+  # GET /api/books/:book_id/transactions?month=&tag=&q=&minAmount=&maxAmount=&status=confirmed|planned&sort=date|amount
   # month(YYYY-MM)を指定するとその月だけを返す。並び順は日付の新しい順(既定)か金額の大きい順
   def index
     require_book!(params[:book_id], current_user_id!)
     sort = params[:sort].presence || "date"
     raise ApiError.bad_request("並び順は date か amount で指定してください: #{sort}") unless %w[date amount].include?(sort)
+    status = params[:status].presence
+    if status && !%w[confirmed planned].include?(status)
+      raise ApiError.bad_request("状態は confirmed か planned で指定してください: #{status}")
+    end
     min_amount = integer_query(:minAmount)
     max_amount = integer_query(:maxAmount)
 
     scope = Entry.where(book_id: params[:book_id])
     scope = scope.in_month(month_value(params[:month])) if params[:month].present?
+    scope = scope.where(confirmed: status == "confirmed") if status
     scope = scope.where(amount: min_amount..) if min_amount
     scope = scope.where(amount: ..max_amount) if max_amount
     if params[:q].present?
@@ -29,18 +34,27 @@ class TransactionsController < ApplicationController
     render json: find_owned_entry!.as_api_json
   end
 
-  # POST /api/books/:book_id/transactions  {amount, date, categoryId, memo?, tags?}
+  # POST /api/books/:book_id/transactions  {amount, date, categoryId, memo?, tags?, confirmed?}
+  # confirmed を省くと確定の取引になる
   def create
     require_book!(params[:book_id], current_user_id!)
-    attrs = entry_attributes(params[:book_id])
+    attrs = entry_attributes(params[:book_id], confirmed_default: true)
     entry = Entry.create!(attrs.merge(book_id: params[:book_id]))
     render json: entry.as_api_json, status: :created
   end
 
-  # PUT /api/transactions/:id
+  # PUT /api/transactions/:id。confirmed を省くと今の予定/確定のまま
   def update
     entry = find_owned_entry!
-    entry.update!(entry_attributes(entry.book_id))
+    entry.update!(entry_attributes(entry.book_id, confirmed_default: entry.confirmed))
+    render json: entry.as_api_json
+  end
+
+  # PATCH /api/transactions/:id/confirm  {confirmed}。カードのチェックで予定と確定を切り替える
+  def confirm
+    entry = find_owned_entry!
+    raise ApiError.bad_request("予定か確定かを指定してください") if params[:confirmed].nil?
+    entry.update!(confirmed: confirmed_value(params[:confirmed], default: nil))
     render json: entry.as_api_json
   end
 
@@ -75,13 +89,14 @@ class TransactionsController < ApplicationController
 
   private
 
-  def entry_attributes(book_id)
+  def entry_attributes(book_id, confirmed_default:)
     {
       amount: amount_value(params[:amount]),
       transaction_date: date_value(params[:date]),
       category_id: category_in_book!(params[:categoryId], book_id).id,
       memo: memo_value(params[:memo]),
-      tags: tags_value(params[:tags])
+      tags: tags_value(params[:tags]),
+      confirmed: confirmed_value(params[:confirmed], default: confirmed_default)
     }
   end
 

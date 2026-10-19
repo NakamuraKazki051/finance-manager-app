@@ -44,7 +44,7 @@ MySQL コンテナが起動している必要があります。メモリの少�
 | `users` | メールアドレス（小文字にそろえて一意）、パスワードのハッシュ |
 | `books` | 家計簿。ユーザーごとに複数持てる |
 | `categories` | カテゴリ。`kind` が `INCOME`（収入）か `EXPENSE`（支出）。`budget` は月間予算（円、未設定は NULL）。画面ではカンバンの1列。Rails では `type` 列が特別扱いなので列名は `kind` で、API では `type` として返す |
-| `entries` | 取引。API では transactions と呼ぶ（モデル名を `Transaction` にすると ActiveRecord の `transaction` と紛らわしいため `Entry`）。金額 `amount` は円の整数（1〜99,999,999）で符号は持たず、収入か支出かはカテゴリで決まる。`transaction_date`、`memo`、`tags`（JSON） |
+| `entries` | 取引。API では transactions と呼ぶ（モデル名を `Transaction` にすると ActiveRecord の `transaction` と紛らわしいため `Entry`）。金額 `amount` は円の整数（1〜99,999,999）で符号は持たず、収入か支出かはカテゴリで決まる。`transaction_date`、`memo`、`tags`（JSON）、`confirmed`（false は予定の取引。既定 true） |
 
 - ID は推測されにくい UUID の文字列
 - 月の一覧・集計は `(book_id, transaction_date)` のインデックスで引き、合計は DB の `SUM` で出す（画面の合計と API の集計が1円もずれない）
@@ -68,20 +68,21 @@ MySQL コンテナが起動している必要があります。メモリの少�
 | POST | `/api/books/ensure-default` | 家計簿が1冊も無ければ「家計簿」と初期カテゴリ（給与/食費/日用品/交通費/住居・光熱費/その他）を作成し、一覧を返す。ユーザー行をロックするので、同時に呼ばれても1冊しか作らない |
 | PUT | `/api/books/:id` | 家計簿名変更 `{name}` |
 | DELETE | `/api/books/:id` | 家計簿削除（そのカテゴリ・取引も削除。最後の1冊は不可） |
-| PUT | `/api/books/:book_id/import` | 家計簿のカテゴリ・取引をJSONで全置換 `{categories: [{id, name, type, budget?}], transactions}` |
-| GET | `/api/books/:book_id/export.csv?month=YYYY-MM` | 取引のCSV（BOM付きUTF-8・CRLF、日付の古い順）。`month` を省くと全期間。`=` `+` `-` `@` で始まる値は先頭に `'` を付けて数式として実行されないようにする |
+| PUT | `/api/books/:book_id/import` | 家計簿のカテゴリ・取引をJSONで全置換 `{categories: [{id, name, type, budget?}], transactions}`。取引の `confirmed` を省いた古いバックアップは確定として取り込む |
+| GET | `/api/books/:book_id/export.csv?month=YYYY-MM` | 取引のCSV（BOM付きUTF-8・CRLF、日付の古い順）。列は日付・種別・カテゴリ・金額・メモ・タグ・状態（確定/予定）。`month` を省くと全期間。`=` `+` `-` `@` で始まる値は先頭に `'` を付けて数式として実行されないようにする |
 | GET | `/api/books/:book_id/categories` | カテゴリ一覧（表示順） |
 | POST | `/api/books/:book_id/categories` | カテゴリ作成 `{name, type, budget?}` |
 | PUT | `/api/categories/:id` | カテゴリ更新 `{name?, type?, budget?}`（`budget` は1〜99,999,999円の整数、`null` で予算を外す。`type` を変えると、そのカテゴリの取引はすべての月で新しい種別として集計される） |
 | PATCH | `/api/categories/:id/move` | カテゴリの並び替え `{displayOrder}` |
 | DELETE | `/api/categories/:id` | カテゴリ削除（そのカテゴリの取引もすべての月の分を削除。最後の1つは不可） |
-| GET | `/api/books/:book_id/transactions?month=&tag=&q=&minAmount=&maxAmount=&sort=date\|amount` | 取引一覧。`month`（YYYY-MM）を省くと全期間。`q` はメモの部分一致。`sort=date`（既定）は日付の新しい順、`amount` は金額の大きい順 |
-| GET | `/api/books/:book_id/summary?month=YYYY-MM` | 月の収入合計・支出合計・残高（収入−支出）・件数と、カテゴリごとの合計（取引の無いカテゴリも0円で含む） |
-| GET | `/api/books/:book_id/summary/monthly?from=YYYY-MM&to=YYYY-MM` | 月ごとの収入合計・支出合計・残高（取引の無い月も0円で含め、古い月から）。期間は24か月まで。種別は取引の時点ではなく、カテゴリの今の種別で集計する |
-| POST | `/api/books/:book_id/transactions` | 取引登録 `{amount, date, categoryId, memo?, tags?}` |
+| GET | `/api/books/:book_id/transactions?month=&tag=&q=&minAmount=&maxAmount=&status=confirmed\|planned&sort=date\|amount` | 取引一覧。`month`（YYYY-MM）を省くと全期間。`status` で確定・予定の取引だけに絞る。`q` はメモの部分一致。`sort=date`（既定）は日付の新しい順、`amount` は金額の大きい順 |
+| GET | `/api/books/:book_id/summary?month=YYYY-MM` | 月の収入合計・支出合計・残高（収入−支出）・件数と、カテゴリごとの合計（取引の無いカテゴリも0円で含む）。合計・残高は確定の取引だけで出し、予定の取引は `plannedIncome` / `plannedExpense` とカテゴリごとの `plannedTotal` に別に出す。件数は予定も含む |
+| GET | `/api/books/:book_id/summary/monthly?from=YYYY-MM&to=YYYY-MM` | 月ごとの収入合計・支出合計・残高（取引の無い月も0円で含め、古い月から）。期間は24か月まで。確定の取引だけを数える。種別は取引の時点ではなく、カテゴリの今の種別で集計する |
+| POST | `/api/books/:book_id/transactions` | 取引登録 `{amount, date, categoryId, memo?, tags?, confirmed?}`（`confirmed` を省くと確定） |
 | GET | `/api/transactions/:id` | 取引取得 |
-| PUT | `/api/transactions/:id` | 取引更新（全項目） |
+| PUT | `/api/transactions/:id` | 取引更新（全項目。`confirmed` を省くと今の予定/確定のまま） |
 | PATCH | `/api/transactions/:id/move` | カテゴリの付け替え `{categoryId}` |
+| PATCH | `/api/transactions/:id/confirm` | 予定と確定の切り替え `{confirmed}`（true / false） |
 | DELETE | `/api/transactions/:id` | 取引削除 |
 | POST | `/api/books/:book_id/transactions/bulk-delete` | 取引一括削除 `{transactionIds}`（存在しない・別の家計簿のIDが1件でも含まれると何も削除せず404） |
 | GET | `/up` | 起動確認（200） |

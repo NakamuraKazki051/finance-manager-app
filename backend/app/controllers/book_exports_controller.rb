@@ -1,5 +1,5 @@
 class BookExportsController < ApplicationController
-  HEADER = %w[日付 種別 カテゴリ 金額 メモ タグ].freeze
+  HEADER = %w[日付 種別 カテゴリ 金額 メモ タグ 状態].freeze
   KIND_LABEL = { Category::INCOME => "収入", Category::EXPENSE => "支出" }.freeze
   # Excel が数式として実行してしまう先頭の文字(CSV インジェクション対策)
   FORMULA_PREFIX = /\A[=+\-@\t\r]/
@@ -14,7 +14,7 @@ class BookExportsController < ApplicationController
     scope = scope.in_month(month) if month
     rows = scope.order(:transaction_date, :created_at, :id).map do |entry|
       [entry.transaction_date.iso8601, KIND_LABEL[entry.category.kind], entry.category.name,
-       entry.amount, entry.memo, (entry.tags || []).join(" ")]
+       entry.amount, entry.memo, (entry.tags || []).join(" "), entry.confirmed ? "確定" : "予定"]
     end
 
     # Excel が UTF-8 と判断できるよう先頭に BOM を付け、改行は CRLF にする

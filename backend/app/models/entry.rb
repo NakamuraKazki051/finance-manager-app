@@ -1,6 +1,7 @@
 # 1件のお金の出入り(API では transaction と呼ぶ)。
 # モデル名を Transaction にすると ActiveRecord の transaction メソッドと紛らわしいので Entry にしている。
 # 金額は円の整数(小数の誤差を避けるため)で、符号は持たない。収入か支出かは所属するカテゴリの種別で決まる
+# confirmed が false の取引は「予定」(F-13)。月の収入・支出・残高や予算の残りには入れず、別に集計する
 class Entry < ApplicationRecord
   MAX_AMOUNT = 99_999_999
 
@@ -12,6 +13,8 @@ class Entry < ApplicationRecord
   before_create { self.created_at ||= Time.current }
 
   scope :in_month, ->(month) { where(transaction_date: month.beginning_of_month..month.end_of_month) }
+  scope :confirmed, -> { where(confirmed: true) }
+  scope :planned, -> { where(confirmed: false) }
 
   def as_api_json
     {
@@ -22,6 +25,7 @@ class Entry < ApplicationRecord
       date: transaction_date.iso8601,
       memo: memo,
       tags: tags || [],
+      confirmed: confirmed,
       createdAt: created_at&.utc&.iso8601(6)
     }
   end

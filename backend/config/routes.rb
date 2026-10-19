@@ -26,6 +26,7 @@ Rails.application.routes.draw do
     end
     resources :transactions, only: %i[show update destroy] do
       patch "move", on: :member
+      patch "confirm", on: :member
     end
 
     match "*path", to: "application#route_not_found", via: :all

@@ -31,9 +31,9 @@ class BookExportTest < ActionDispatch::IntegrationTest
     assert_match(/attachment; filename="transactions-2026-10\.csv"/, response.headers["Content-Disposition"])
     assert response.body.end_with?("\r\n")
     assert_equal [
-      %("日付","種別","カテゴリ","金額","メモ","タグ"),
-      %("2026-10-01","収入","給与",250000,"給料",""),
-      %("2026-10-17","支出","食費",1280,"スーパー","日常 現金")
+      %("日付","種別","カテゴリ","金額","メモ","タグ","状態"),
+      %("2026-10-01","収入","給与",250000,"給料","","確定"),
+      %("2026-10-17","支出","食費",1280,"スーパー","日常 現金","確定")
     ], csv_lines
   end
 
@@ -49,7 +49,7 @@ class BookExportTest < ActionDispatch::IntegrationTest
   test "an empty month still has the header" do
     export(month: "2026-10")
     assert_response :ok
-    assert_equal [%("日付","種別","カテゴリ","金額","メモ","タグ")], csv_lines
+    assert_equal [%("日付","種別","カテゴリ","金額","メモ","タグ","状態")], csv_lines
   end
 
   test "quotes commas, quotes and line breaks, and defuses formulas" do
@@ -58,9 +58,9 @@ class BookExportTest < ActionDispatch::IntegrationTest
     create_transaction(@book_id, @food, 300, "2026-10-03", { memo: "-2", tags: ["@x"] })
     export(month: "2026-10")
     lines = csv_lines
-    assert_equal %("2026-10-01","支出","食費",100,"A,""B""",""), lines[1]
-    assert_equal %("2026-10-02","支出","食費",200,"'=1+1",""), lines[2]
-    assert_equal %("2026-10-03","支出","食費",300,"'-2","'@x"), lines[3]
+    assert_equal %("2026-10-01","支出","食費",100,"A,""B""","","確定"), lines[1]
+    assert_equal %("2026-10-02","支出","食費",200,"'=1+1","","確定"), lines[2]
+    assert_equal %("2026-10-03","支出","食費",300,"'-2","'@x","確定"), lines[3]
   end
 
   test "rejects a malformed month" do

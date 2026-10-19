@@ -418,6 +418,8 @@ kbd {
 .summary-item.income dd { color: var(--income); }
 .summary-item.expense dd { color: var(--expense); }
 .summary-item.balance dd.negative { color: var(--expense); }
+/* 予定の取引の分(月の合計には入っていない) */
+.summary-item dd.summary-planned { font-size: 0.72rem; font-weight: 700; color: var(--text-muted); }
 
 @media (max-width: 720px) {
   .month-bar { padding: 10px 12px; }
@@ -818,8 +820,8 @@ kbd {
 }
 .txn-row {
   display: grid;
-  grid-template-areas: "check date cat amount memo tags del";
-  grid-template-columns: auto 3.2em 7em 7.5em minmax(0, 1fr) auto auto;
+  grid-template-areas: "check date cat amount memo tags conf del";
+  grid-template-columns: auto 3.2em 7em 7.5em minmax(0, 1fr) auto auto auto;
   align-items: center;
   column-gap: 12px;
   cursor: pointer;
@@ -831,6 +833,7 @@ kbd {
 .txn-row .txn-memo { grid-area: memo; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .txn-row .txn-tags { grid-area: tags; margin: 0; justify-content: flex-end; }
 .txn-row .txn-delete { grid-area: del; }
+.txn-row .confirm-toggle { grid-area: conf; margin: 0; justify-self: end; }
 .txn-row-category {
   font-size: 0.82rem;
   font-weight: 700;
@@ -851,7 +854,7 @@ kbd {
     grid-template-areas:
       "check date cat amount del"
       "check memo memo memo memo"
-      "check tags tags tags tags";
+      "check tags tags conf conf";
     row-gap: 4px;
   }
   .txn-row .txn-tags { justify-content: flex-start; }
@@ -874,6 +877,37 @@ kbd {
 /* カンバンのカードでは右上の角に重ねる。日付がボタンの下に潜らないよう、見出し行の右に余白を取る */
 .txn-card:not(.txn-row) > .txn-delete { position: absolute; top: 6px; right: 6px; }
 .txn-card:not(.txn-row) > .txn-card-head { padding-right: 22px; }
+
+/* 予定の取引(F-13)。点線の枠と薄い金額で、確定した取引と見分ける */
+.txn-card.planned {
+  box-shadow: none;
+  outline: 1.5px dashed var(--text-muted);
+  outline-offset: -1.5px;
+}
+.txn-card.planned .txn-amount { opacity: 0.6; }
+.confirm-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.confirm-toggle input { margin: 0; cursor: pointer; }
+.confirm-toggle.planned { color: var(--accent); }
+
+/* 列見出しの合計の下に出す、予定の取引の合計 */
+.column-total-amounts { display: flex; flex-direction: column; align-items: flex-end; }
+.column-planned { font-size: 0.72rem; font-weight: 700; color: var(--list-header); opacity: 0.75; }
+.budget-planned { margin-top: 4px; font-size: 0.72rem; font-weight: 700; color: var(--text-muted); }
+.budget-planned.over { color: var(--expense); }
+
+/* 取引モーダルの「予定」チェック */
+.stack-form label.checkbox-label { flex-direction: row; align-items: center; gap: 8px; font-weight: normal; }
+.stack-form label.checkbox-label input { width: auto; margin: 0; }
 
 /* 確認モーダル(タグ・取引の削除)の本文 */
 .confirm-text { margin: 4px 0 8px; line-height: 1.8; }

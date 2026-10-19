@@ -11,6 +11,7 @@ export type TransactionInput = {
   categoryId: string;
   memo: string;
   tags: string[];
+  confirmed: boolean;
 };
 
 type Props = {
@@ -31,6 +32,7 @@ export function TransactionModal({ transaction, categories, defaultDate, default
   const [categoryId, setCategoryId] = useState(transaction?.categoryId ?? fallbackCategory?.id ?? "");
   const [memo, setMemo] = useState(transaction?.memo ?? "");
   const [tags, setTags] = useState(transaction ? transaction.tags.join(", ") : "");
+  const [planned, setPlanned] = useState(transaction ? !transaction.confirmed : false);
   const [error, setError] = useState("");
   const amountRef = useRef<HTMLInputElement>(null);
   const dateRef = useRef<HTMLInputElement>(null);
@@ -54,7 +56,7 @@ export function TransactionModal({ transaction, categories, defaultDate, default
       setError("カテゴリを選んでください。");
       return;
     }
-    onSave({ amount: value, date, categoryId, memo: memo.trim(), tags: parseTags(tags) });
+    onSave({ amount: value, date, categoryId, memo: memo.trim(), tags: parseTags(tags), confirmed: !planned });
   }
 
   return (
@@ -105,6 +107,10 @@ export function TransactionModal({ transaction, categories, defaultDate, default
         <label>
           <span>タグ<span className="hint">(カンマ区切り)</span></span>
           <input type="text" placeholder="例: 外食, 旅行" value={tags} onChange={(e) => setTags(e.target.value)} />
+        </label>
+        <label className="checkbox-label">
+          <input type="checkbox" checked={planned} onChange={(e) => setPlanned(e.target.checked)} />
+          <span>予定（まだ確定していない。月の収入・支出・残高には入れず、別に表示する）</span>
         </label>
         {error && <div className="auth-error" role="alert">{error}</div>}
         <div className="modal-actions">
