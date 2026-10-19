@@ -48,6 +48,8 @@ class CategoriesController < ApplicationController
 
     Category.transaction do
       Entry.where(category_id: category.id).delete_all
+      # そのカテゴリの固定費も消す(残すと、消えたカテゴリの取引を作り続けてしまう)
+      RecurringEntry.where(category_id: category.id).delete_all
       category.delete
       renumber(ordered(category.book_id))
     end

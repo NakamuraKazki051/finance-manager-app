@@ -17,6 +17,21 @@ export type Transaction = {
   tags: string[];
   // false は「予定」の取引(F-13)。予定は月の収入・支出・残高に入らない
   confirmed: boolean;
+  // 固定費(F-12)から作った取引なら、その固定費のID
+  recurringId: string | null;
+  createdAt: string;
+};
+// 固定費(F-12)。毎月 day 日(無い月は月末)に、予定の取引がサーバーで作られる。月は YYYY-MM
+export type RecurringRule = {
+  id: string;
+  bookId: string;
+  categoryId: string;
+  amount: number;
+  day: number;
+  memo: string | null;
+  tags: string[];
+  startMonth: string;
+  lastGeneratedMonth: string | null;
   createdAt: string;
 };
 // 推移は確定の取引だけで集計する

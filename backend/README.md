@@ -44,11 +44,13 @@ MySQL コンテナが起動している必要があります。メモリの少�
 | `users` | メールアドレス（小文字にそろえて一意）、パスワードのハッシュ |
 | `books` | 家計簿。ユーザーごとに複数持てる |
 | `categories` | カテゴリ。`kind` が `INCOME`（収入）か `EXPENSE`（支出）。`budget` は月間予算（円、未設定は NULL）。画面ではカンバンの1列。Rails では `type` 列が特別扱いなので列名は `kind` で、API では `type` として返す |
-| `entries` | 取引。API では transactions と呼ぶ（モデル名を `Transaction` にすると ActiveRecord の `transaction` と紛らわしいため `Entry`）。金額 `amount` は円の整数（1〜99,999,999）で符号は持たず、収入か支出かはカテゴリで決まる。`transaction_date`、`memo`、`tags`（JSON）、`confirmed`（false は予定の取引。既定 true） |
+| `entries` | 取引。API では transactions と呼ぶ（モデル名を `Transaction` にすると ActiveRecord の `transaction` と紛らわしいため `Entry`）。金額 `amount` は円の整数（1〜99,999,999）で符号は持たず、収入か支出かはカテゴリで決まる。`transaction_date`、`memo`、`tags`（JSON）、`confirmed`（false は予定の取引。既定 true）、`recurring_entry_id`（固定費から作った取引ならその固定費） |
+| `recurring_entries` | 固定費（F-12）。毎月 `day_of_month` 日（1〜31、無い月は月末）に、同じカテゴリ・金額・メモ・タグの予定の取引を作る。`start_month` から作り始め、作り終えた最後の月を `last_generated_month` に記録する（作った取引を消しても作り直さない） |
 
 - ID は推測されにくい UUID の文字列
 - 月の一覧・集計は `(book_id, transaction_date)` のインデックスで引き、合計は DB の `SUM` で出す（画面の合計と API の集計が1円もずれない）
-- 子の行は親への外部キーを持たないので、家計簿・カテゴリを消すときはコントローラーで取引・カテゴリを明示的に消す
+- 子の行は親への外部キーを持たないので、家計簿・カテゴリを消すときはコントローラーで取引・カテゴリ・固定費を明示的に消す
+- 固定費の取引は定期実行ではなく、画面が家計簿を開いたときの `generate` で今月の分まで作る（EC2 を使うときだけ起動するため）。「今月」は日本時間で決める
 
 ## エンドポイント
 
@@ -67,14 +69,19 @@ MySQL コンテナが起動している必要があります。メモリの少�
 | POST | `/api/books` | 家計簿作成 `{name}`（初期カテゴリも一緒に作る） |
 | POST | `/api/books/ensure-default` | 家計簿が1冊も無ければ「家計簿」と初期カテゴリ（給与/食費/日用品/交通費/住居・光熱費/その他）を作成し、一覧を返す。ユーザー行をロックするので、同時に呼ばれても1冊しか作らない |
 | PUT | `/api/books/:id` | 家計簿名変更 `{name}` |
-| DELETE | `/api/books/:id` | 家計簿削除（そのカテゴリ・取引も削除。最後の1冊は不可） |
-| PUT | `/api/books/:book_id/import` | 家計簿のカテゴリ・取引をJSONで全置換 `{categories: [{id, name, type, budget?}], transactions}`。取引の `confirmed` を省いた古いバックアップは確定として取り込む |
+| DELETE | `/api/books/:id` | 家計簿削除（そのカテゴリ・取引・固定費も削除。最後の1冊は不可） |
+| PUT | `/api/books/:book_id/import` | 家計簿のカテゴリ・取引・固定費をJSONで全置換 `{categories: [{id, name, type, budget?}], transactions, recurring?}`。取引の `confirmed` を省いた古いバックアップは確定として取り込む。固定費の `lastGeneratedMonth` を省くと、今月までは作り済みとして取り込む |
 | GET | `/api/books/:book_id/export.csv?month=YYYY-MM` | 取引のCSV（BOM付きUTF-8・CRLF、日付の古い順）。列は日付・種別・カテゴリ・金額・メモ・タグ・状態（確定/予定）。`month` を省くと全期間。`=` `+` `-` `@` で始まる値は先頭に `'` を付けて数式として実行されないようにする |
 | GET | `/api/books/:book_id/categories` | カテゴリ一覧（表示順） |
 | POST | `/api/books/:book_id/categories` | カテゴリ作成 `{name, type, budget?}` |
 | PUT | `/api/categories/:id` | カテゴリ更新 `{name?, type?, budget?}`（`budget` は1〜99,999,999円の整数、`null` で予算を外す。`type` を変えると、そのカテゴリの取引はすべての月で新しい種別として集計される） |
 | PATCH | `/api/categories/:id/move` | カテゴリの並び替え `{displayOrder}` |
-| DELETE | `/api/categories/:id` | カテゴリ削除（そのカテゴリの取引もすべての月の分を削除。最後の1つは不可） |
+| DELETE | `/api/categories/:id` | カテゴリ削除（そのカテゴリの取引もすべての月の分を削除し、固定費も削除。最後の1つは不可） |
+| GET | `/api/books/:book_id/recurring-transactions` | 固定費一覧（毎月の日付の早い順） |
+| POST | `/api/books/:book_id/recurring-transactions` | 固定費登録 `{categoryId, amount, day, memo?, tags?, startMonth?}`。`startMonth`（YYYY-MM、今月の前後12か月以内）を省くと今月から。開始月から今月までの予定の取引をすぐに作る |
+| POST | `/api/books/:book_id/recurring-transactions/generate` | 今月までで、まだ作っていない月の予定の取引を作る `{created}`。固定費の行をロックするので、同時に呼ばれても二重に作らない |
+| PUT | `/api/recurring-transactions/:id` | 固定費更新 `{categoryId, amount, day, memo?, tags?}`（これから作る取引にだけ反映） |
+| DELETE | `/api/recurring-transactions/:id` | 固定費削除（作り済みの取引は残し、`recurringId` を外す） |
 | GET | `/api/books/:book_id/transactions?month=&tag=&q=&minAmount=&maxAmount=&status=confirmed\|planned&sort=date\|amount` | 取引一覧。`month`（YYYY-MM）を省くと全期間。`status` で確定・予定の取引だけに絞る。`q` はメモの部分一致。`sort=date`（既定）は日付の新しい順、`amount` は金額の大きい順 |
 | GET | `/api/books/:book_id/summary?month=YYYY-MM` | 月の収入合計・支出合計・残高（収入−支出）・件数と、カテゴリごとの合計（取引の無いカテゴリも0円で含む）。合計・残高は確定の取引だけで出し、予定の取引は `plannedIncome` / `plannedExpense` とカテゴリごとの `plannedTotal` に別に出す。件数は予定も含む |
 | GET | `/api/books/:book_id/summary/monthly?from=YYYY-MM&to=YYYY-MM` | 月ごとの収入合計・支出合計・残高（取引の無い月も0円で含め、古い月から）。期間は24か月まで。確定の取引だけを数える。種別は取引の時点ではなく、カテゴリの今の種別で集計する |

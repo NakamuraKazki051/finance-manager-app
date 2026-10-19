@@ -46,8 +46,9 @@ class BooksController < ApplicationController
     raise ApiError.bad_request("最後の1冊の家計簿は削除できません") if Book.where(user_id: user_id).count <= 1
 
     Book.transaction do
-      # カテゴリ・取引は家計簿への外部キーを持たないため、明示的に消さないとDBに残り続ける
+      # カテゴリ・取引・固定費は家計簿への外部キーを持たないため、明示的に消さないとDBに残り続ける
       Entry.where(book_id: params[:id]).delete_all
+      RecurringEntry.where(book_id: params[:id]).delete_all
       Category.where(book_id: params[:id]).delete_all
       Book.where(id: params[:id]).delete_all
     end

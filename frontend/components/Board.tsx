@@ -368,6 +368,7 @@ function TransactionCard(props: ColumnProps & { txn: Transaction }) {
           {income ? "+" : "−"}
           {formatYen(txn.amount)}
         </span>
+        {txn.recurringId && <RecurringMark />}
         <span className="txn-date">{formatTxnDate(txn.date)}</span>
       </div>
       {/* メモが空のときはカテゴリ名を薄く出す */}
@@ -378,9 +379,14 @@ function TransactionCard(props: ColumnProps & { txn: Transaction }) {
   );
 }
 
-// 読み上げ用のカードの説明。予定の取引はそのことも伝える
+// 固定費(F-12)から自動で作った取引の印
+export function RecurringMark() {
+  return <span className="txn-recurring" title="固定費から自動で作った取引" aria-hidden="true">🔁</span>;
+}
+
+// 読み上げ用のカードの説明。予定の取引・固定費の取引はそのことも伝える
 export function txnLabel(txn: Transaction, category: Category) {
-  return `${txn.confirmed ? "" : "予定 "}${txn.date} ${category.name} ${TYPE_LABEL[category.type]} ${formatYen(txn.amount)} ${txn.memo ?? ""}`;
+  return `${txn.confirmed ? "" : "予定 "}${txn.recurringId ? "固定費 " : ""}${txn.date} ${category.name} ${TYPE_LABEL[category.type]} ${formatYen(txn.amount)} ${txn.memo ?? ""}`;
 }
 
 // 取引の「確定」チェック(F-13)。外すと予定になり、月の収入・支出・残高から外れる。カンバンと一覧の両方で使う

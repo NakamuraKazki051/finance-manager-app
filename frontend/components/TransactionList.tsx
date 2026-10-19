@@ -3,7 +3,7 @@
 import type { KeyboardEvent } from "react";
 import type { Category, Transaction } from "@/lib/api";
 import { formatTxnDate, formatYen } from "@/lib/format";
-import { ConfirmToggle, DeleteTxnButton, TagList, txnLabel } from "./Board";
+import { ConfirmToggle, DeleteTxnButton, RecurringMark, TagList, txnLabel } from "./Board";
 
 type Props = {
   categories: Category[];
@@ -88,7 +88,10 @@ function ListRow(props: Props & { txn: Transaction; category: Category }) {
         {income ? "+" : "−"}
         {formatYen(txn.amount)}
       </span>
-      <span className={`txn-memo${txn.memo ? "" : " empty"}`}>{txn.memo || "メモなし"}</span>
+      <span className={`txn-memo${txn.memo ? "" : " empty"}`}>
+        {txn.recurringId && <RecurringMark />}
+        {txn.memo || "メモなし"}
+      </span>
       <TagList txn={txn} selectionMode={selectionMode} onRemoveTag={props.onRemoveTag} />
       {!selectionMode && <ConfirmToggle txn={txn} onToggle={props.onToggleConfirmed} />}
       {!selectionMode && <DeleteTxnButton onClick={() => props.onDeleteTransaction(txn)} />}
