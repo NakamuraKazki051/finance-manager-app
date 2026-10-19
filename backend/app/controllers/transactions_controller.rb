@@ -106,11 +106,4 @@ class TransactionsController < ApplicationController
     require_book!(entry.book_id, user_id)
     entry
   end
-
-  def category_in_book!(category_id, book_id)
-    raise ApiError.bad_request("カテゴリを指定してください") unless category_id.is_a?(String) && category_id.present?
-    category = Category.find_by(id: category_id) or raise ApiError.not_found("カテゴリが見つかりません: #{category_id}")
-    raise ApiError.bad_request("指定したカテゴリはこの家計簿に属していません") if category.book_id != book_id
-    category
-  end
 end

@@ -26,6 +26,8 @@ class Entry < ApplicationRecord
       memo: memo,
       tags: tags || [],
       confirmed: confirmed,
+      # 固定費(F-12)から作った取引なら、その固定費のID
+      recurringId: recurring_entry_id,
       createdAt: created_at&.utc&.iso8601(6)
     }
   end

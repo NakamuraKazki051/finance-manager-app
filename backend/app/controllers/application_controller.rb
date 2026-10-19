@@ -58,6 +58,14 @@ class ApplicationController < ActionController::API
     raise ApiError.not_found("家計簿が見つかりません: #{book_id}") unless Book.exists?(id: book_id, user_id: user_id)
   end
 
+  # 取引・固定費に付けるカテゴリ。家計簿の所有者の確認(require_book!)を済ませてから呼ぶ
+  def category_in_book!(category_id, book_id)
+    raise ApiError.bad_request("カテゴリを指定してください") unless category_id.is_a?(String) && category_id.present?
+    category = Category.find_by(id: category_id) or raise ApiError.not_found("カテゴリが見つかりません: #{category_id}")
+    raise ApiError.bad_request("指定したカテゴリはこの家計簿に属していません") if category.book_id != book_id
+    category
+  end
+
   # --- 入力チェック(フロントの maxlength と同じ上限にする。超えた値でDBエラーの 500 にしない) ---
 
   def required_string(value, max:, blank_message:, too_long_message:)
@@ -129,6 +137,13 @@ class ApplicationController < ActionController::API
     Integer(value, 10)
   rescue ArgumentError, TypeError
     raise ApiError.bad_request("パラメータの値が不正です: #{name}")
+  end
+
+  # 固定費(F-12)の毎月の日付。29〜31日は、その日が無い月では月末になる
+  def day_value(value)
+    raise ApiError.bad_request("毎月の日付を指定してください") if value.nil?
+    raise ApiError.bad_request("毎月の日付は1〜31の整数で指定してください") unless value.is_a?(Integer) && value.between?(1, 31)
+    value
   end
 
   # 予定/確定(F-13)。省略したときは default を使う。"true" のような文字列は受け付けない

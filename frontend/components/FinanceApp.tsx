@@ -9,6 +9,7 @@ import {
   type Book,
   type Category,
   type CategoryType,
+  type RecurringRule,
   type Summary,
   type Transaction,
   type User,
@@ -29,6 +30,7 @@ import {
 import { AccountModal, LoginModal, RegisterModal } from "./AuthModals";
 import { Board } from "./Board";
 import { ConfirmModal } from "./Modal";
+import { RecurringModal } from "./RecurringModal";
 import { ReportModal } from "./ReportModal";
 import { TransactionList } from "./TransactionList";
 import { TransactionModal, type TransactionInput } from "./TransactionModal";
@@ -109,6 +111,7 @@ export default function FinanceApp() {
   // カードのごみ箱か、編集画面の「削除」を押したときの確認モーダル
   const [txnDeletion, setTxnDeletion] = useState<Transaction | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
+  const [recurringOpen, setRecurringOpen] = useState(false);
   // カードのタグの × を押したときの確認モーダル
   const [tagRemoval, setTagRemoval] = useState<{ txn: Transaction; tag: string } | null>(null);
   // 列の「+ 取引を追加」から開いたときは、そのカテゴリを選んだ状態で開く
@@ -141,6 +144,7 @@ export default function FinanceApp() {
     setTagRemoval(null);
     setTxnDeletion(null);
     setReportOpen(false);
+    setRecurringOpen(false);
     setSelectionMode(false);
     setSelectedIds(new Set());
     setMonth(currentMonthString());
@@ -236,6 +240,24 @@ export default function FinanceApp() {
     const cats = await api.get<Category[]>(`/api/books/${id}/categories`);
     setCategories(cats);
   }, []);
+
+  // 家計簿を開いたら、月が変わって作っていない固定費(F-12)の取引をサーバーに作らせる。
+  // 二重に作らない判定はサーバー側で行う。作られたら、表示中の取引と集計を取り直す
+  useEffect(() => {
+    if (!bookId) return;
+    let stale = false;
+    (async () => {
+      try {
+        const { created } = await api.post<{ created: number }>(`/api/books/${bookId}/recurring-transactions/generate`);
+        if (!stale && created > 0) reload();
+      } catch {
+        /* エラーはバナー表示済み */
+      }
+    })();
+    return () => {
+      stale = true;
+    };
+  }, [bookId, reload]);
 
   // --- 表示中の月の取引と集計 ---
   useEffect(() => {
@@ -542,8 +564,12 @@ export default function FinanceApp() {
     setMenuOpen(false);
     if (!bookId) return;
     let all: Transaction[];
+    let recurring: RecurringRule[];
     try {
-      all = await api.get<Transaction[]>(`/api/books/${bookId}/transactions`);
+      [all, recurring] = await Promise.all([
+        api.get<Transaction[]>(`/api/books/${bookId}/transactions`),
+        api.get<RecurringRule[]>(`/api/books/${bookId}/recurring-transactions`),
+      ]);
     } catch {
       return;
     }
@@ -553,7 +579,9 @@ export default function FinanceApp() {
       book: books.find((b) => b.id === bookId)?.name,
       exportedAt: new Date().toISOString(),
       categories: categories.map(({ id, name, type, budget }) => ({ id, name, type, budget })),
-      transactions: all.map(({ categoryId, amount, date, memo, tags, confirmed }) => ({ categoryId, amount, date, memo: memo ?? "", tags, confirmed })),
+      transactions: all.map(({ categoryId, amount, date, memo, tags, confirmed, recurringId }) => ({ categoryId, amount, date, memo: memo ?? "", tags, confirmed, recurringId })),
+      // lastGeneratedMonth も残し、取り込んだあとに作り済みの月の取引を二重に作らないようにする
+      recurring: recurring.map(({ id, categoryId, amount, day, memo, tags, startMonth, lastGeneratedMonth }) => ({ id, categoryId, amount, day, memo: memo ?? "", tags, startMonth, lastGeneratedMonth })),
     };
     saveFile(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }), `finance-manager-backup-${localDateString()}.json`);
   }
@@ -578,8 +606,9 @@ export default function FinanceApp() {
     e.target.value = "";
     if (!file || !bookId) return;
     type ImportCategory = { id?: unknown; name?: unknown; type?: unknown; budget?: unknown };
-    type ImportTxn = { categoryId?: unknown; amount?: unknown; date?: unknown; memo?: unknown; tags?: unknown; confirmed?: unknown };
-    let data: { categories?: ImportCategory[]; transactions?: ImportTxn[] };
+    type ImportTxn = { categoryId?: unknown; amount?: unknown; date?: unknown; memo?: unknown; tags?: unknown; confirmed?: unknown; recurringId?: unknown };
+    type ImportRule = { id?: unknown; categoryId?: unknown; amount?: unknown; day?: unknown; memo?: unknown; tags?: unknown; startMonth?: unknown; lastGeneratedMonth?: unknown };
+    let data: { categories?: ImportCategory[]; transactions?: ImportTxn[]; recurring?: ImportRule[] };
     try {
       data = JSON.parse(await file.text());
     } catch {
@@ -603,7 +632,8 @@ export default function FinanceApp() {
       alert(`金額または日付が正しくない取引が${invalidCount}件あるため、インポートを中止しました。`);
       return;
     }
-    if (!confirm(`インポートすると、この家計簿のカテゴリと取引(${data.transactions.length}件)がすべて置き換わります。よろしいですか?`)) return;
+    const rules = Array.isArray(data.recurring) ? data.recurring.filter((r): r is ImportRule => !!r && typeof r === "object") : [];
+    if (!confirm(`インポートすると、この家計簿のカテゴリ・取引(${data.transactions.length}件)・固定費(${rules.length}件)がすべて置き換わります。よろしいですか?`)) return;
 
     const importCategories = data.categories.map((c, idx) => ({
       id: c && c.id != null ? String(c.id) : `cat-${idx}`,
@@ -621,9 +651,23 @@ export default function FinanceApp() {
       tags: [...new Set((Array.isArray(t.tags) ? t.tags : []).filter((tag): tag is string => typeof tag === "string" && !!tag.trim()).map((tag) => tag.trim()))],
       // 予定/確定の無い古いバックアップは確定として取り込む
       confirmed: t.confirmed !== false,
+      recurringId: typeof t.recurringId === "string" ? t.recurringId : null,
     }));
+    // 固定費は、カテゴリが見つからないものだけ外す(金額・日付などの不正はサーバーが 400 で知らせる)
+    const importRules = rules
+      .filter((r) => typeof r.categoryId === "string" && knownIds.has(r.categoryId))
+      .map((r) => ({
+        id: r.id != null ? String(r.id) : null,
+        categoryId: r.categoryId,
+        amount: r.amount,
+        day: r.day,
+        memo: r.memo ? String(r.memo) : "",
+        tags: Array.isArray(r.tags) ? r.tags.filter((tag): tag is string => typeof tag === "string" && !!tag.trim()) : [],
+        startMonth: r.startMonth,
+        lastGeneratedMonth: r.lastGeneratedMonth ?? null,
+      }));
     try {
-      await api.put(`/api/books/${bookId}/import`, { categories: importCategories, transactions: importTxns });
+      await api.put(`/api/books/${bookId}/import`, { categories: importCategories, transactions: importTxns, recurring: importRules });
       await refreshCategories(bookId);
     } catch {
       return;
@@ -633,7 +677,7 @@ export default function FinanceApp() {
   }
 
   // --- キーボード操作 ---
-  const anyModalOpen = editing !== null || authModal !== null || tagRemoval !== null || txnDeletion !== null || reportOpen;
+  const anyModalOpen = editing !== null || authModal !== null || tagRemoval !== null || txnDeletion !== null || reportOpen || recurringOpen;
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
@@ -644,6 +688,7 @@ export default function FinanceApp() {
         if (txnDeletion) setTxnDeletion(null);
         else if (tagRemoval) setTagRemoval(null);
         else if (reportOpen) setReportOpen(false);
+        else if (recurringOpen) setRecurringOpen(false);
         else if (editing) setEditing(null);
         else if (authModal) setAuthModal(null);
         else if (selectionMode) toggleSelectionMode(false);
@@ -663,7 +708,7 @@ export default function FinanceApp() {
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [editing, authModal, tagRemoval, txnDeletion, reportOpen, selectionMode, anyModalOpen, bookId]);
+  }, [editing, authModal, tagRemoval, txnDeletion, reportOpen, recurringOpen, selectionMode, anyModalOpen, bookId]);
 
   // メニューの外をクリックしたら閉じる
   useEffect(() => {
@@ -755,6 +800,8 @@ export default function FinanceApp() {
             <button type="button" className={`btn-secondary${selectionMode ? " active" : ""}`} aria-pressed={selectionMode}
               title="取引を複数選択してまとめて削除します" onClick={() => toggleSelectionMode(!selectionMode)}>☑ 選択</button>
             <button type="button" className="btn-secondary" title="カテゴリ別の内訳と12か月の推移をグラフで見る" onClick={() => setReportOpen(true)}>📊 レポート</button>
+            <button type="button" className="btn-secondary" title="家賃・サブスクなど毎月の固定費を登録すると、その月の取引が予定として自動で作られます"
+              onClick={() => setRecurringOpen(true)}>🔁 固定費</button>
             {/* 使用頻度の低い設定・データ操作はメニューにまとめ、ヘッダーのボタン数を減らす */}
             <details ref={menuRef} className="menu" open={menuOpen}>
               <summary className="btn-secondary" onClick={(e) => {
@@ -929,6 +976,9 @@ export default function FinanceApp() {
       {reportOpen && bookId && (
         <ReportModal bookId={bookId} month={month} categories={categories} summary={summary}
           onSelectMonth={changeMonth} onClose={() => setReportOpen(false)} />
+      )}
+      {recurringOpen && bookId && (
+        <RecurringModal bookId={bookId} categories={categories} onChanged={reload} onClose={() => setRecurringOpen(false)} />
       )}
       {txnDeletion && (
         <ConfirmModal title="取引を削除" onConfirm={deleteTransaction} onCancel={() => setTxnDeletion(null)}>

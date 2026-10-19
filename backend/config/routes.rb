@@ -15,6 +15,8 @@ Rails.application.routes.draw do
       resources :categories, only: %i[index create]
       resources :transactions, only: %i[index create]
       post "transactions/bulk-delete", to: "transactions#bulk_delete"
+      resources :recurring_transactions, path: "recurring-transactions", only: %i[index create]
+      post "recurring-transactions/generate", to: "recurring_transactions#generate"
       get "summary", to: "summaries#show"
       get "summary/monthly", to: "summaries#monthly"
       put "import", to: "book_imports#update"
@@ -28,6 +30,7 @@ Rails.application.routes.draw do
       patch "move", on: :member
       patch "confirm", on: :member
     end
+    resources :recurring_transactions, path: "recurring-transactions", only: %i[update destroy]
 
     match "*path", to: "application#route_not_found", via: :all
   end
