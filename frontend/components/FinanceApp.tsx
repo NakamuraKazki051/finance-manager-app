@@ -55,8 +55,9 @@ const BOARD_LAYOUT_KEY = "finance-manager-app:boardLayout";
 const BOARD_LAYOUT_LABEL: Record<BoardLayout, string> = { list: "縦", kanban: "横" };
 
 type AuthModal = "login" | "register" | "account" | null;
-type Filters = { q: string; tag: string; min: string; max: string };
-const EMPTY_FILTERS: Filters = { q: "", tag: "", min: "", max: "" };
+// status は予定/確定での絞り込み(F-13)。空はすべて
+type Filters = { q: string; tag: string; min: string; max: string; status: "" | "confirmed" | "planned" };
+const EMPTY_FILTERS: Filters = { q: "", tag: "", min: "", max: "", status: "" };
 
 // localStorage はプライベートモードなどで使えないことがあるので、失敗しても画面は動くようにする
 function readStorage(key: string): string | null {
@@ -81,7 +82,7 @@ function amountFilter(text: string): number | null {
 }
 
 function isFilterActive(f: Filters): boolean {
-  return !!(f.q.trim() || f.tag || amountFilter(f.min) !== null || amountFilter(f.max) !== null);
+  return !!(f.q.trim() || f.tag || f.status || amountFilter(f.min) !== null || amountFilter(f.max) !== null);
 }
 
 export default function FinanceApp() {
@@ -259,6 +260,7 @@ export default function FinanceApp() {
           const params = new URLSearchParams({ month, sort });
           if (appliedFilters.q.trim()) params.set("q", appliedFilters.q.trim());
           if (appliedFilters.tag) params.set("tag", appliedFilters.tag);
+          if (appliedFilters.status) params.set("status", appliedFilters.status);
           const min = amountFilter(appliedFilters.min);
           const max = amountFilter(appliedFilters.max);
           if (min !== null) params.set("minAmount", String(min));
@@ -446,6 +448,7 @@ export default function FinanceApp() {
         categoryId: txn.categoryId,
         memo: txn.memo ?? "",
         tags: txn.tags.filter((t) => t !== tag),
+        confirmed: txn.confirmed,
       });
     } catch {
       return;
@@ -497,6 +500,16 @@ export default function FinanceApp() {
     reload();
   }
 
+  // カードの「確定」チェック。予定⇔確定を切り替えると月の合計が変わるので取り直す
+  async function toggleConfirmed(txn: Transaction) {
+    try {
+      await api.patch(`/api/transactions/${txn.id}/confirm`, { confirmed: !txn.confirmed });
+    } catch {
+      /* エラーはバナー表示済み */
+    }
+    reload();
+  }
+
   function toggleSelectionMode(enabled: boolean) {
     setSelectionMode(enabled);
     setSelectedIds(new Set());
@@ -540,7 +553,7 @@ export default function FinanceApp() {
       book: books.find((b) => b.id === bookId)?.name,
       exportedAt: new Date().toISOString(),
       categories: categories.map(({ id, name, type, budget }) => ({ id, name, type, budget })),
-      transactions: all.map(({ categoryId, amount, date, memo, tags }) => ({ categoryId, amount, date, memo: memo ?? "", tags })),
+      transactions: all.map(({ categoryId, amount, date, memo, tags, confirmed }) => ({ categoryId, amount, date, memo: memo ?? "", tags, confirmed })),
     };
     saveFile(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }), `finance-manager-backup-${localDateString()}.json`);
   }
@@ -565,7 +578,7 @@ export default function FinanceApp() {
     e.target.value = "";
     if (!file || !bookId) return;
     type ImportCategory = { id?: unknown; name?: unknown; type?: unknown; budget?: unknown };
-    type ImportTxn = { categoryId?: unknown; amount?: unknown; date?: unknown; memo?: unknown; tags?: unknown };
+    type ImportTxn = { categoryId?: unknown; amount?: unknown; date?: unknown; memo?: unknown; tags?: unknown; confirmed?: unknown };
     let data: { categories?: ImportCategory[]; transactions?: ImportTxn[] };
     try {
       data = JSON.parse(await file.text());
@@ -606,6 +619,8 @@ export default function FinanceApp() {
       date: t.date,
       memo: t.memo ? String(t.memo) : "",
       tags: [...new Set((Array.isArray(t.tags) ? t.tags : []).filter((tag): tag is string => typeof tag === "string" && !!tag.trim()).map((tag) => tag.trim()))],
+      // 予定/確定の無い古いバックアップは確定として取り込む
+      confirmed: t.confirmed !== false,
     }));
     try {
       await api.put(`/api/books/${bookId}/import`, { categories: importCategories, transactions: importTxns });
@@ -716,6 +731,16 @@ export default function FinanceApp() {
                 <option key={t} value={t}>{t}</option>
               ))}
             </select>
+            <select aria-label="予定か確定かで絞り込み" value={filters.status}
+              onChange={(e) => {
+                const next = { ...filters, status: e.target.value as Filters["status"] };
+                setFilters(next);
+                setAppliedFilters(next);
+              }}>
+              <option value="">予定・確定</option>
+              <option value="confirmed">確定のみ</option>
+              <option value="planned">予定のみ</option>
+            </select>
             <div className="amount-range" role="group" aria-label="金額で絞り込み">
               <input type="number" min={1} max={MAX_AMOUNT} step={1} inputMode="numeric" placeholder="¥ 下限" aria-label="金額の下限"
                 value={filters.min} onChange={(e) => setFilters({ ...filters, min: e.target.value })} />
@@ -776,17 +801,23 @@ export default function FinanceApp() {
           </div>
           {/* 金額は新しい月の集計が届いてから出す(前の月の金額を新しい月の名前の横に出さない) */}
           <dl className="summary">
+            {/* 収入・支出・残高は確定した取引だけ。予定の取引があれば、その分を小さく添える */}
             <div className="summary-item income">
               <dt>収入</dt>
               <dd>{summary ? formatYen(summary.income) : "…"}</dd>
+              {summary && summary.plannedIncome > 0 && <dd className="summary-planned">予定 +{formatYen(summary.plannedIncome)}</dd>}
             </div>
             <div className="summary-item expense">
               <dt>支出</dt>
               <dd>{summary ? formatYen(summary.expense) : "…"}</dd>
+              {summary && summary.plannedExpense > 0 && <dd className="summary-planned">予定 −{formatYen(summary.plannedExpense)}</dd>}
             </div>
             <div className="summary-item balance">
               <dt>残高</dt>
               <dd className={summary && summary.balance < 0 ? "negative" : undefined}>{summary ? formatSignedYen(summary.balance) : "…"}</dd>
+              {summary && (summary.plannedIncome > 0 || summary.plannedExpense > 0) && (
+                <dd className="summary-planned">予定込み {formatSignedYen(summary.balance + summary.plannedIncome - summary.plannedExpense)}</dd>
+              )}
             </div>
           </dl>
         </section>
@@ -834,6 +865,7 @@ export default function FinanceApp() {
           onToggleSelected={toggleSelected}
           onRemoveTag={(txn, tag) => setTagRemoval({ txn, tag })}
           onDeleteTransaction={setTxnDeletion}
+          onToggleConfirmed={toggleConfirmed}
           onAddTransaction={() => openNewTransaction()}
         />
       ) : loggedIn ? (
@@ -848,6 +880,7 @@ export default function FinanceApp() {
           onOpenTransaction={setEditing}
           onRemoveTag={(txn, tag) => setTagRemoval({ txn, tag })}
           onDeleteTransaction={setTxnDeletion}
+          onToggleConfirmed={toggleConfirmed}
           onAddTransaction={openNewTransaction}
           onToggleSelected={toggleSelected}
           onMoveTransaction={moveTransaction}

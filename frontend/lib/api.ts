@@ -15,16 +15,22 @@ export type Transaction = {
   date: string;
   memo: string | null;
   tags: string[];
+  // false は「予定」の取引(F-13)。予定は月の収入・支出・残高に入らない
+  confirmed: boolean;
   createdAt: string;
 };
+// 推移は確定の取引だけで集計する
 export type MonthTotal = { month: string; income: number; expense: number; balance: number };
 export type MonthlySummary = { from: string; to: string; months: MonthTotal[] };
-export type CategoryTotal = { categoryId: string; total: number; count: number };
+// total は確定の取引の合計、plannedTotal は予定の取引の合計。count は予定も含めた件数
+export type CategoryTotal = { categoryId: string; total: number; plannedTotal: number; count: number };
 export type Summary = {
   month: string;
   income: number;
   expense: number;
   balance: number;
+  plannedIncome: number;
+  plannedExpense: number;
   count: number;
   categories: CategoryTotal[];
 };

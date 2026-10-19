@@ -2,8 +2,8 @@
 
 import type { KeyboardEvent } from "react";
 import type { Category, Transaction } from "@/lib/api";
-import { formatTxnDate, formatYen, TYPE_LABEL } from "@/lib/format";
-import { DeleteTxnButton, TagList } from "./Board";
+import { formatTxnDate, formatYen } from "@/lib/format";
+import { ConfirmToggle, DeleteTxnButton, TagList, txnLabel } from "./Board";
 
 type Props = {
   categories: Category[];
@@ -15,6 +15,7 @@ type Props = {
   onToggleSelected: (id: string) => void;
   onRemoveTag: (txn: Transaction, tag: string) => void;
   onDeleteTransaction: (txn: Transaction) => void;
+  onToggleConfirmed: (txn: Transaction) => void;
   onAddTransaction: () => void;
 };
 
@@ -57,6 +58,7 @@ function ListRow(props: Props & { txn: Transaction; category: Category }) {
   }
 
   const classNames = ["txn-card", "txn-row"];
+  if (!txn.confirmed) classNames.push("planned");
   if (selectionMode) classNames.push("selectable");
   if (selected) classNames.push("selected");
 
@@ -66,7 +68,7 @@ function ListRow(props: Props & { txn: Transaction; category: Category }) {
       role="button"
       tabIndex={0}
       aria-pressed={selectionMode ? selected : undefined}
-      aria-label={`${txn.date} ${category.name} ${TYPE_LABEL[category.type]} ${formatYen(txn.amount)} ${txn.memo ?? ""}`}
+      aria-label={txnLabel(txn, category)}
       onClick={activate}
       onKeyDown={handleKeyDown}
     >
@@ -88,6 +90,7 @@ function ListRow(props: Props & { txn: Transaction; category: Category }) {
       </span>
       <span className={`txn-memo${txn.memo ? "" : " empty"}`}>{txn.memo || "メモなし"}</span>
       <TagList txn={txn} selectionMode={selectionMode} onRemoveTag={props.onRemoveTag} />
+      {!selectionMode && <ConfirmToggle txn={txn} onToggle={props.onToggleConfirmed} />}
       {!selectionMode && <DeleteTxnButton onClick={() => props.onDeleteTransaction(txn)} />}
     </li>
   );

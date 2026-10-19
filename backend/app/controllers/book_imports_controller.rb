@@ -1,6 +1,7 @@
 class BookImportsController < ApplicationController
-  # PUT /api/books/:book_id/import  {categories: [{id, name, type, budget?}], transactions: [{categoryId, amount, date, memo, tags}]}
-  # 家計簿のカテゴリ・取引をバックアップの内容で置き換える。1件でも不正なデータがあれば何も変更しない
+  # PUT /api/books/:book_id/import  {categories: [{id, name, type, budget?}], transactions: [{categoryId, amount, date, memo, tags, confirmed?}]}
+  # 家計簿のカテゴリ・取引をバックアップの内容で置き換える。1件でも不正なデータがあれば何も変更しない。
+  # confirmed の無い古いバックアップの取引は確定として取り込む
   def update
     book_id = params[:book_id]
     require_book!(book_id, current_user_id!)
@@ -32,7 +33,8 @@ class BookImportsController < ApplicationController
         amount: amount_value(t[:amount]),
         transaction_date: date_value(t[:date]),
         memo: memo_value(t[:memo]),
-        tags: tags_value(t[:tags])
+        tags: tags_value(t[:tags]),
+        confirmed: confirmed_value(t[:confirmed], default: true)
       }
     end
 
@@ -47,7 +49,8 @@ class BookImportsController < ApplicationController
       end
       entry_rows.each do |row|
         Entry.create!(book_id: book_id, category_id: id_map.fetch(row[:old_category_id]),
-                      amount: row[:amount], transaction_date: row[:transaction_date], memo: row[:memo], tags: row[:tags])
+                      amount: row[:amount], transaction_date: row[:transaction_date], memo: row[:memo], tags: row[:tags],
+                      confirmed: row[:confirmed])
       end
     end
     head :no_content

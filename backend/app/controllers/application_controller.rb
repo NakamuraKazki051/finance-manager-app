@@ -131,6 +131,13 @@ class ApplicationController < ActionController::API
     raise ApiError.bad_request("パラメータの値が不正です: #{name}")
   end
 
+  # 予定/確定(F-13)。省略したときは default を使う。"true" のような文字列は受け付けない
+  def confirmed_value(value, default:)
+    return default if value.nil?
+    raise ApiError.bad_request("予定か確定かは true か false で指定してください") unless [true, false].include?(value)
+    value
+  end
+
   def memo_value(value)
     memo = optional_string(value, max: 100, too_long_message: "メモは100文字以内で入力してください")&.strip
     memo.presence
