@@ -733,7 +733,14 @@ export default function FinanceApp() {
   const tags = [...new Set(monthTxns.flatMap((t) => t.tags))].sort();
   // 今の月に無いタグで絞り込み中でも、選択が勝手に外れないよう残しておく
   if (filters.tag && !tags.includes(filters.tag)) tags.push(filters.tag);
-  const filteredTotal = visibleTxns.reduce((sum, t) => sum + t.amount, 0);
+  // 絞り込み結果の合計は、収入と支出を混ぜずに種別ごとに出す(種別はカテゴリが持つ)
+  const incomeCategoryIds = new Set(categories.filter((c) => c.type === "INCOME").map((c) => c.id));
+  let filteredIncome = 0;
+  let filteredExpense = 0;
+  for (const t of visibleTxns) {
+    if (incomeCategoryIds.has(t.categoryId)) filteredIncome += t.amount;
+    else filteredExpense += t.amount;
+  }
 
   return (
     <>
@@ -901,7 +908,7 @@ export default function FinanceApp() {
 
       {loggedIn && filterActive && (
         <div className="filter-bar" role="status">
-          <span>絞り込み中: この月の{monthTxns.length}件中 {visibleTxns.length}件を表示(合計 {formatYen(filteredTotal)})</span>
+          <span>絞り込み中: この月の{monthTxns.length}件中 {visibleTxns.length}件を表示(収入 {formatYen(filteredIncome)} / 支出 {formatYen(filteredExpense)})</span>
           <button type="button" className="btn-secondary" onClick={() => {
             setFilters(EMPTY_FILTERS);
             setAppliedFilters(EMPTY_FILTERS);
