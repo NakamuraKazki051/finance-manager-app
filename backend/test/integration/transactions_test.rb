@@ -82,6 +82,13 @@ class TransactionsTest < ActionDispatch::IntegrationTest
     assert_response :bad_request
   end
 
+  test "search word or tag that is not a string is a bad request" do
+    ["q[]=a", "q[x]=a", "tag[]=a", "tag[x]=a"].each do |query|
+      get "/api/books/#{@book_id}/transactions?#{query}"
+      assert_response :bad_request, query
+    end
+  end
+
   test "filters by tag, memo and amount range" do
     create_transaction(@book_id, @food, 500, "2026-10-01", { memo: "コンビニ", tags: ["間食"] })
     create_transaction(@book_id, @food, 3000, "2026-10-02", { memo: "居酒屋", tags: ["外食"] })

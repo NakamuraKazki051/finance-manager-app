@@ -12,6 +12,10 @@ class TransactionsController < ApplicationController
     end
     min_amount = integer_query(:minAmount)
     max_amount = integer_query(:maxAmount)
+    # q[]=… のような配列・ハッシュで送られると LIKE の組み立てで 500 になるので、文字列だけ受け付ける
+    %i[q tag].each do |name|
+      raise ApiError.bad_request("パラメータの値が不正です: #{name}") unless params[name].nil? || params[name].is_a?(String)
+    end
 
     scope = Entry.where(book_id: params[:book_id])
     scope = scope.in_month(month_value(params[:month])) if params[:month].present?

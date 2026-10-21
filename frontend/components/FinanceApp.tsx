@@ -319,6 +319,16 @@ export default function FinanceApp() {
   }
 
   // --- 家計簿 ---
+  // 別の家計簿を開く。前の家計簿の選択や絞り込み(タグなど)は持ち越さない
+  function openBook(id: string) {
+    setBookId(id);
+    writeStorage(CURRENT_BOOK_KEY, id);
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+    setFilters(EMPTY_FILTERS);
+    setAppliedFilters(EMPTY_FILTERS);
+  }
+
   async function switchBook(id: string) {
     if (id === bookId || !books.some((b) => b.id === id)) return;
     try {
@@ -326,12 +336,7 @@ export default function FinanceApp() {
     } catch {
       return;
     }
-    setBookId(id);
-    writeStorage(CURRENT_BOOK_KEY, id);
-    setSelectionMode(false);
-    setSelectedIds(new Set());
-    setFilters(EMPTY_FILTERS);
-    setAppliedFilters(EMPTY_FILTERS);
+    openBook(id);
   }
 
   async function addBook() {
@@ -342,8 +347,7 @@ export default function FinanceApp() {
       const book = await api.post<Book>("/api/books", { name });
       setBooks((prev) => [...prev, book]);
       await refreshCategories(book.id);
-      setBookId(book.id);
-      writeStorage(CURRENT_BOOK_KEY, book.id);
+      openBook(book.id);
     } catch {
       /* エラーはバナー表示済み */
     }
@@ -381,8 +385,7 @@ export default function FinanceApp() {
     } catch {
       /* エラーはバナー表示済み */
     }
-    setBookId(rest[0].id);
-    writeStorage(CURRENT_BOOK_KEY, rest[0].id);
+    openBook(rest[0].id);
   }
 
   // --- カテゴリ ---
@@ -733,14 +736,19 @@ export default function FinanceApp() {
   const tags = [...new Set(monthTxns.flatMap((t) => t.tags))].sort();
   // 今の月に無いタグで絞り込み中でも、選択が勝手に外れないよう残しておく
   if (filters.tag && !tags.includes(filters.tag)) tags.push(filters.tag);
-  // 絞り込み結果の合計は、収入と支出を混ぜずに種別ごとに出す(種別はカテゴリが持つ)
+  // 絞り込み結果の合計は、収入と支出を混ぜずに種別ごとに出す(種別はカテゴリが持つ)。
+  // 月の収入・支出と同じく、予定の取引は合計に入れず別に出す
   const incomeCategoryIds = new Set(categories.filter((c) => c.type === "INCOME").map((c) => c.id));
-  let filteredIncome = 0;
-  let filteredExpense = 0;
+  const filteredTotals = { income: 0, expense: 0, plannedIncome: 0, plannedExpense: 0 };
   for (const t of visibleTxns) {
-    if (incomeCategoryIds.has(t.categoryId)) filteredIncome += t.amount;
-    else filteredExpense += t.amount;
+    const income = incomeCategoryIds.has(t.categoryId);
+    if (t.confirmed) filteredTotals[income ? "income" : "expense"] += t.amount;
+    else filteredTotals[income ? "plannedIncome" : "plannedExpense"] += t.amount;
   }
+  const filteredPlanned = [
+    filteredTotals.plannedIncome > 0 && `+${formatYen(filteredTotals.plannedIncome)}`,
+    filteredTotals.plannedExpense > 0 && `−${formatYen(filteredTotals.plannedExpense)}`,
+  ].filter(Boolean).join(" / ");
 
   return (
     <>
@@ -908,7 +916,7 @@ export default function FinanceApp() {
 
       {loggedIn && filterActive && (
         <div className="filter-bar" role="status">
-          <span>絞り込み中: この月の{monthTxns.length}件中 {visibleTxns.length}件を表示(収入 {formatYen(filteredIncome)} / 支出 {formatYen(filteredExpense)})</span>
+          <span>絞り込み中: この月の{monthTxns.length}件中 {visibleTxns.length}件を表示(収入 {formatYen(filteredTotals.income)} / 支出 {formatYen(filteredTotals.expense)}{filteredPlanned && `、予定 ${filteredPlanned}`})</span>
           <button type="button" className="btn-secondary" onClick={() => {
             setFilters(EMPTY_FILTERS);
             setAppliedFilters(EMPTY_FILTERS);
