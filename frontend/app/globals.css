@@ -1117,7 +1117,11 @@ kbd {
 
 .hidden { display: none !important; }
 
+/* 取引の保存などモーダルの中の操作で失敗したときも見えるよう、画面の上端に貼り付けてモーダルより手前に出す */
 .api-error-banner {
+  position: sticky;
+  top: 0;
+  z-index: 11;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1157,8 +1161,6 @@ kbd {
 .selection-actions button { padding: 6px 12px; font-size: 0.82rem; }
 .selection-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
 .selection-actions .btn-danger:disabled:hover { background: transparent; color: var(--danger); }
-
-#selectionModeBtn.active { background: var(--accent); color: white; }
 
 .txn-card.selectable { cursor: pointer; }
 .txn-card.selectable:active { cursor: pointer; }

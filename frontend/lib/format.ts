@@ -1,6 +1,8 @@
 import type { CategoryType } from "./api";
 
 export const MAX_AMOUNT = 99_999_999;
+// タグ1つの長さの上限(バックエンドの tags_value と合わせる)
+export const MAX_TAG_LENGTH = 30;
 export const TYPE_LABEL: Record<CategoryType, string> = { INCOME: "収入", EXPENSE: "支出" };
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 const TAG_COLORS = ["sky", "lime", "green", "red", "azure", "purple", "yellow", "orange", "pink", "slate"];

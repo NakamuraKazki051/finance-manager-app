@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { api, type Category, type RecurringRule } from "@/lib/api";
-import { currentMonthString, formatMonthLabel, formatYen, MAX_AMOUNT, parseTags, shiftMonth, TYPE_LABEL } from "@/lib/format";
+import { currentMonthString, formatMonthLabel, formatYen, MAX_AMOUNT, MAX_TAG_LENGTH, parseTags, shiftMonth, TYPE_LABEL } from "@/lib/format";
 import { Modal } from "./Modal";
 
 // 開始月として選べる範囲(今月の前後12か月。バックエンドの START_MONTH_RANGE と合わせる)
@@ -81,7 +81,12 @@ export function RecurringModal({ bookId, categories, onChanged, onClose }: Props
       setError("カテゴリを選んでください。");
       return;
     }
-    const body = { amount, day: form.day, categoryId: form.categoryId, memo: form.memo.trim(), tags: parseTags(form.tags) };
+    const tags = parseTags(form.tags);
+    if (tags.some((t) => t.length > MAX_TAG_LENGTH)) {
+      setError(`タグは1つ${MAX_TAG_LENGTH}文字以内で入力してください。`);
+      return;
+    }
+    const body = { amount, day: form.day, categoryId: form.categoryId, memo: form.memo.trim(), tags };
     try {
       if (editing === "new") {
         await api.post(`/api/books/${bookId}/recurring-transactions`, { ...body, startMonth: form.startMonth });

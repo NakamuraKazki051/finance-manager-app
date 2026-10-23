@@ -2,7 +2,7 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import type { Category, Transaction } from "@/lib/api";
-import { formatCreatedAt, MAX_AMOUNT, parseTags, TYPE_LABEL } from "@/lib/format";
+import { formatCreatedAt, MAX_AMOUNT, MAX_TAG_LENGTH, parseTags, TYPE_LABEL } from "@/lib/format";
 import { Modal } from "./Modal";
 
 export type TransactionInput = {
@@ -56,7 +56,12 @@ export function TransactionModal({ transaction, categories, defaultDate, default
       setError("カテゴリを選んでください。");
       return;
     }
-    onSave({ amount: value, date, categoryId, memo: memo.trim(), tags: parseTags(tags), confirmed: !planned });
+    const tagList = parseTags(tags);
+    if (tagList.some((t) => t.length > MAX_TAG_LENGTH)) {
+      setError(`タグは1つ${MAX_TAG_LENGTH}文字以内で入力してください。`);
+      return;
+    }
+    onSave({ amount: value, date, categoryId, memo: memo.trim(), tags: tagList, confirmed: !planned });
   }
 
   return (
