@@ -1117,7 +1117,7 @@ kbd {
 
 .hidden { display: none !important; }
 
-/* 取引の保存などモーダルの中の操作で失敗したときも見えるよう、画面の上端に貼り付けてモーダルより手前に出す */
+/* スクロールしても見えるよう、画面の上端に貼り付ける */
 .api-error-banner {
   position: sticky;
   top: 0;
@@ -1131,6 +1131,14 @@ kbd {
   color: var(--text-oncolor);
   font-size: 0.85rem;
 }
+/* モーダルを開いているときは、普段の位置(ヘッダーの下)だとモーダルの真ん中に重なるので、
+   画面の一番上に固定し、モーダルはその下から始める */
+body:has(.modal-overlay) .api-error-banner {
+  position: fixed;
+  left: 0;
+  right: 0;
+}
+body:has(.api-error-banner) .modal-overlay { padding-top: 64px; }
 
 .api-error-banner .icon-btn {
   background: rgba(255, 255, 255, 0.2);

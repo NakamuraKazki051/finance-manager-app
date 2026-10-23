@@ -71,8 +71,11 @@ server {
   # 家計簿のインポート（JSON）を送れるようにする
   client_max_body_size 10m;
 
+  # 画面(index.html など)はキャッシュの指定が無いとブラウザが推測で使い回し、デプロイしても古い画面が出るので、
+  # 毎回新しいものか確かめさせる(変わっていなければ 304 で済む)
   location / {
     try_files $uri $uri.html $uri/ /index.html;
+    add_header Cache-Control "no-cache";
   }
 
   # Next.js の書き出したファイルは名前にハッシュが付くので、長くキャッシュしてよい

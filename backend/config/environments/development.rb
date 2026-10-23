@@ -21,6 +21,9 @@ Rails.application.configure do
     config.public_file_server.headers = { "cache-control" => "public, max-age=#{2.days.to_i}" }
   else
     config.action_controller.perform_caching = false
+    # backend/public に書き出した画面を配信している。キャッシュの指定が無いとブラウザが index.html を
+    # 推測で使い回し、書き出し直しても古い画面が出るので、毎回新しいものか確かめさせる
+    config.public_file_server.headers = { "cache-control" => "no-cache" }
   end
 
   # Change to :null_store to avoid any caching.
