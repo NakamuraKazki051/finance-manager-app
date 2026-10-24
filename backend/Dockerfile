@@ -19,7 +19,13 @@ RUN apt-get update -qq && \
     apt-get install --no-install-recommends -y build-essential default-libmysqlclient-dev pkg-config libyaml-dev && \
     rm -rf /var/lib/apt/lists/*
 COPY Gemfile Gemfile.lock ./
-RUN bundle install && rm -rf ~/.bundle "${BUNDLE_PATH}"/ruby/*/cache
+# Bundler 4.0.20 は、deployment(frozen)のままだとネイティブ拡張の gem を入れたあとに、Gemfile.lock を変えなくてよいのに
+# 「lockfile needs to be updated」で止まる。frozen を外して入れ、Gemfile.lock が1文字でも変わったらビルドを失敗させて、
+# frozen と同じく「Gemfile.lock どおりの gem だけを入れる」ことを守る
+RUN cp Gemfile.lock /tmp/Gemfile.lock.orig && \
+    BUNDLE_DEPLOYMENT=0 bundle install && \
+    diff -u /tmp/Gemfile.lock.orig Gemfile.lock && \
+    rm -rf ~/.bundle "${BUNDLE_PATH}"/ruby/*/cache /tmp/Gemfile.lock.orig
 COPY . .
 RUN bundle exec bootsnap precompile app/ lib/
 
