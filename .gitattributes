@@ -1,3 +1,5 @@
 # EC2（Linux）で実行するスクリプトは、Windowsで編集してもLF改行のまま保つ
 *.sh text eol=lf
 *.tftpl text eol=lf
+# Rails の bin/ のスクリプト(拡張子なし)はイメージの中で実行するので、CRLF だと「ruby\r が無い」で起動できない
+backend/bin/* text eol=lf
