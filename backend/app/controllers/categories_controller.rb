@@ -44,9 +44,11 @@ class CategoriesController < ApplicationController
   # DELETE /api/categories/:id。そのカテゴリの取引もすべての月の分を削除する(画面で確認してから呼ぶ)
   def destroy
     category = find_owned_category!
-    raise ApiError.bad_request("最後の1カテゴリは削除できません") if Category.where(book_id: category.book_id).count <= 1
-
     Category.transaction do
+      # 2つのタブで残り2つを同時に消しても両方消えないよう、家計簿の行をロックしてから数える
+      Book.lock.find_by(id: category.book_id) or raise ApiError.not_found("家計簿が見つかりません: #{category.book_id}")
+      raise ApiError.bad_request("最後の1カテゴリは削除できません") if Category.where(book_id: category.book_id).count <= 1
+
       Entry.where(category_id: category.id).delete_all
       # そのカテゴリの固定費も消す(残すと、消えたカテゴリの取引を作り続けてしまう)
       RecurringEntry.where(category_id: category.id).delete_all

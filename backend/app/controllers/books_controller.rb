@@ -42,10 +42,12 @@ class BooksController < ApplicationController
   # DELETE /api/books/:id。カテゴリ・取引も一緒に消す(最後の1冊は消せない)
   def destroy
     user_id = current_user_id!
-    require_book!(params[:id], user_id)
-    raise ApiError.bad_request("最後の1冊の家計簿は削除できません") if Book.where(user_id: user_id).count <= 1
-
     Book.transaction do
+      # 2つのタブで残り2冊を同時に消しても両方消えないよう、ユーザー行をロックしてから冊数を数える
+      User.lock.find_by(id: user_id) or raise ApiError.unauthorized("ログインしていません")
+      require_book!(params[:id], user_id)
+      raise ApiError.bad_request("最後の1冊の家計簿は削除できません") if Book.where(user_id: user_id).count <= 1
+
       # カテゴリ・取引・固定費は家計簿への外部キーを持たないため、明示的に消さないとDBに残り続ける
       Entry.where(book_id: params[:id]).delete_all
       RecurringEntry.where(book_id: params[:id]).delete_all

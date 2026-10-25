@@ -62,7 +62,7 @@ MySQL コンテナが起動している必要があります。メモリの少�
 |---|---|---|
 | POST | `/api/users/register` | ユーザー登録 `{email, password}` |
 | PUT | `/api/users/me` | メールアドレス・パスワード変更 `{email?, newPassword?, currentPassword}` |
-| POST | `/api/auth/login` | ログイン `{email, password}`（ログイン前のセッションは使い回さない） |
+| POST | `/api/auth/login` | ログイン `{email, password}`（ログイン前のセッションは使い回さない。同じメールアドレスで5分間に10回を超えると 429） |
 | POST | `/api/auth/logout` | ログアウト |
 | GET | `/api/auth/me` | ログイン中のユーザー |
 | GET | `/api/books` | 家計簿一覧（作った順） |

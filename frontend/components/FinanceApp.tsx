@@ -642,7 +642,9 @@ export default function FinanceApp() {
       return;
     }
     const rules = Array.isArray(data.recurring) ? data.recurring.filter((r): r is ImportRule => !!r && typeof r === "object") : [];
-    if (!confirm(`インポートすると、この家計簿のカテゴリ・取引(${data.transactions.length}件)・固定費(${rules.length}件)がすべて置き換わります。よろしいですか?`)) return;
+    // 取引・固定費のタグは、前後の空白を除いて重複をまとめる
+    const importTags = (tags: unknown) =>
+      [...new Set((Array.isArray(tags) ? tags : []).filter((tag): tag is string => typeof tag === "string" && !!tag.trim()).map((tag) => tag.trim()))];
 
     const importCategories = data.categories.map((c, idx) => ({
       id: c && c.id != null ? String(c.id) : `cat-${idx}`,
@@ -657,7 +659,7 @@ export default function FinanceApp() {
       amount: t.amount,
       date: t.date,
       memo: t.memo ? String(t.memo) : "",
-      tags: [...new Set((Array.isArray(t.tags) ? t.tags : []).filter((tag): tag is string => typeof tag === "string" && !!tag.trim()).map((tag) => tag.trim()))],
+      tags: importTags(t.tags),
       // 予定/確定の無い古いバックアップは確定として取り込む
       confirmed: t.confirmed !== false,
       recurringId: typeof t.recurringId === "string" ? t.recurringId : null,
@@ -671,10 +673,18 @@ export default function FinanceApp() {
         amount: r.amount,
         day: r.day,
         memo: r.memo ? String(r.memo) : "",
-        tags: Array.isArray(r.tags) ? r.tags.filter((tag): tag is string => typeof tag === "string" && !!tag.trim()) : [],
+        tags: importTags(r.tags),
         startMonth: r.startMonth,
         lastGeneratedMonth: r.lastGeneratedMonth ?? null,
       }));
+    // 件数は実際に取り込む数で出し、カテゴリが見つからずに変わるものがあれば先に知らせる
+    const orphanTxns = data.transactions.filter((t) => !(typeof t.categoryId === "string" && knownIds.has(t.categoryId))).length;
+    const skippedRules = rules.length - importRules.length;
+    const notes = [
+      orphanTxns > 0 && `\n・カテゴリが見つからない取引${orphanTxns}件は「${importCategories[0].name}」に入れます。`,
+      skippedRules > 0 && `\n・カテゴリが見つからない固定費${skippedRules}件は取り込みません。`,
+    ].filter(Boolean).join("");
+    if (!confirm(`インポートすると、この家計簿のカテゴリ・取引(${importTxns.length}件)・固定費(${importRules.length}件)がすべて置き換わります。よろしいですか?${notes}`)) return;
     try {
       await api.put(`/api/books/${bookId}/import`, { categories: importCategories, transactions: importTxns, recurring: importRules });
       // 取り込んだ固定費に、まだ作っていない月があればすぐに作る(家計簿は開いたままなので、開いたときの処理は走らない)
