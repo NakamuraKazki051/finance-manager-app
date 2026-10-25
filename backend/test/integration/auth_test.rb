@@ -54,6 +54,28 @@ class AuthTest < ActionDispatch::IntegrationTest
     User.define_singleton_method(:password_matches?, original) if original
   end
 
+  test "too many login attempts for one email are refused for a while" do
+    email = register_and_login
+    post "/api/auth/logout"
+    # 登録のあとのログインで1回使っている
+    (AuthController::LOGIN_ATTEMPTS - 1).times do
+      post "/api/auth/login", params: { email: email, password: "wrong-password" }, as: :json
+      assert_response :unauthorized
+    end
+    # 回数を超えたら、正しいパスワードでも受け付けない(大文字・空白違いのメールアドレスも同じ扱い)
+    post "/api/auth/login", params: { email: " #{email.upcase}", password: PASSWORD }, as: :json
+    assert_response :too_many_requests
+    assert_match "ログインの試行回数が多すぎます", json_body["message"]
+
+    # 別のメールアドレスのログインは止めない
+    register_and_login(open_session)
+
+    travel AuthController::LOGIN_WINDOW + 1.second do
+      post "/api/auth/login", params: { email: email, password: PASSWORD }, as: :json
+      assert_response :ok
+    end
+  end
+
   test "me and logout without a session" do
     get "/api/auth/me"
     assert_response :unauthorized

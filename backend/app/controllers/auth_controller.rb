@@ -1,4 +1,14 @@
 class AuthController < ApplicationController
+  # 1つのメールアドレスに対して、この回数を超えるログインは一定時間受け付けない(パスワードの総当たり対策)。
+  # 数えるのはメールアドレスごと(IP ごとにすると、同じ回線の人や E2E テストの多数のユーザーまで止まる)。
+  # Puma は1プロセスなので、回数はプロセスのメモリに置けば足りる
+  LOGIN_ATTEMPTS = 10
+  LOGIN_WINDOW = 5.minutes
+  rate_limit to: LOGIN_ATTEMPTS, within: LOGIN_WINDOW, only: :login,
+             by: -> { User.normalize_email(params[:email]) },
+             with: -> { render_error(429, "ログインの試行回数が多すぎます。5分ほど待ってからもう一度お試しください") },
+             store: ActiveSupport::Cache::MemoryStore.new
+
   # POST /api/auth/login
   def login
     email = params[:email]
