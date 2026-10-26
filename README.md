@@ -10,6 +10,24 @@
 | バックエンド | Ruby 4.0 + Ruby on Rails 8.1（API モード） |
 | データベース | MySQL 8.4（ローカルは Docker、AWS は RDS for MySQL の無料枠） |
 
+## 画面
+
+カンバン表示（列＝カテゴリ、カード＝取引。右上に月の収入・支出・残高）
+
+![カンバン表示](./docs/images/kanban.png)
+
+右へスクロールした様子（点線の枠は固定費から作られた「予定」の取引。末尾の「+ カテゴリを追加」で列を増やせる）
+
+![カンバン表示（右側）](./docs/images/kanban-scrolled.png)
+
+一覧表示（「カードの並び：縦」で、その月の取引を1列に並べる）
+
+![一覧表示](./docs/images/list.png)
+
+「⚙ 設定・データ」メニュー（テーマ、カードの並び、CSV 出力、エクスポート/インポート）
+
+![設定・データメニュー](./docs/images/settings-menu.png)
+
 ## 起動手順
 
 Ruby 4.0（MSYS2 付き）と Node.js 24 が必要です（このPCでは `~/tools` に入っています。入れ方は [`backend/README.md`](./backend/README.md)）。
