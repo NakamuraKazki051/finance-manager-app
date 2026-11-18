@@ -52,8 +52,9 @@ jobs:
           cp Gemfile.lock /tmp/Gemfile.lock.orig
           bundle install --jobs 4
           diff -u /tmp/Gemfile.lock.orig Gemfile.lock
-      - run: bin/rails db:create db:schema:load
-      - run: bin/rails test
+      # bin/rails は Windows からコミットしていて実行権限が無いので、ruby で動かす
+      - run: ruby bin/rails db:create db:schema:load
+      - run: ruby bin/rails test
 
   frontend:
     name: 画面の型・lint・ビルド
@@ -70,6 +71,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npm run typecheck
       - run: npm run lint
       - run: npm run build
+      # LayoutProps などの型は build が作るので、型チェックは build のあと
+      - run: npm run typecheck
