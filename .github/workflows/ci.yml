@@ -1,0 +1,75 @@
+# PR と master への push のたびに、API のテストと画面の型・lint・ビルドを自動で動かす
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: API のテスト
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: financemanager
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pfinancemanager"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      RAILS_ENV: test
+      DB_HOST: 127.0.0.1
+      # Bundler 4.0.20 は deployment(frozen)だとネイティブ拡張のあとに止まる(Dockerfile と同じ理由)。
+      # frozen を外して入れ、Gemfile.lock が変わっていないことを diff で確かめる
+      BUNDLE_DEPLOYMENT: "0"
+      BUNDLE_PATH: vendor/bundle
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ruby/setup-ruby@v1
+        with:
+          working-directory: backend
+      - uses: actions/cache@v5
+        with:
+          path: backend/vendor/bundle
+          key: gems-${{ runner.os }}-${{ hashFiles('backend/.ruby-version', 'backend/Gemfile.lock') }}
+      - run: |
+          cp Gemfile.lock /tmp/Gemfile.lock.orig
+          bundle install --jobs 4
+          diff -u /tmp/Gemfile.lock.orig Gemfile.lock
+      - run: bin/rails db:create db:schema:load
+      - run: bin/rails test
+
+  frontend:
+    name: 画面の型・lint・ビルド
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
