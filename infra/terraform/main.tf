@@ -22,32 +22,23 @@ data "aws_ssm_parameter" "al2023_ami" {
 
 resource "aws_security_group" "app" {
   name        = "${var.project}-app"
-  description = "Frontend via nginx (80), optional backend API (8080). No SSH; use Session Manager."
+  description = "nginx on 80, from CloudFront only. No SSH; use Session Manager."
   vpc_id      = data.aws_vpc.default.id
 }
 
-locals {
-  # 80番: nginx（フロントエンドの配信と、/api/ をバックエンドへ中継）
-  # 8080番: バックエンド。expose_backend_port = true のときだけインターネットに開ける
-  app_ports = merge(
-    { frontend = 80 },
-    var.expose_backend_port ? { backend = 8080 } : {},
-  )
-
-  ingress_rules = {
-    for pair in setproduct(keys(local.app_ports), var.allowed_http_cidrs) :
-    "${pair[0]}-${pair[1]}" => { name = pair[0], port = local.app_ports[pair[0]], cidr = pair[1] }
-  }
+# AWS が管理している CloudFront の送信元 IP の一覧
+data "aws_ec2_managed_prefix_list" "cloudfront" {
+  name = "com.amazonaws.global.cloudfront.origin-facing"
 }
 
+# 80番（nginx）を CloudFront からだけ開ける。暗号化されない http://<IP>/ を直接開かれないように。
+# バックエンド（8080）と SSH（22）は開けない
 resource "aws_vpc_security_group_ingress_rule" "app" {
-  for_each = local.ingress_rules
-
   security_group_id = aws_security_group.app.id
-  description       = each.value.name
-  cidr_ipv4         = each.value.cidr
-  from_port         = each.value.port
-  to_port           = each.value.port
+  description       = "http from CloudFront"
+  prefix_list_id    = data.aws_ec2_managed_prefix_list.cloudfront.id
+  from_port         = 80
+  to_port           = 80
   ip_protocol       = "tcp"
 }
 
@@ -109,6 +100,8 @@ resource "aws_instance" "app" {
     db_name               = aws_db_instance.db.db_name
     db_username           = aws_db_instance.db.username
     db_password_parameter = aws_ssm_parameter.db_password.name
+    origin_secret         = random_password.origin_secret.result
+    app_origin            = "https://${aws_cloudfront_distribution.app.domain_name}"
   })
 
   # CPUを使いすぎたときに追加料金が出る「unlimited」モードにしない
