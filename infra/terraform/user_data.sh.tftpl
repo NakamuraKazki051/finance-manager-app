@@ -68,6 +68,12 @@ server {
   listen 80;
   root /usr/share/nginx/html;
   index index.html;
+
+  # 自分の CloudFront を通ったリクエストだけを受け付ける。80番は CloudFront 全体に開いているので他人の CloudFront からも届くが、
+  # 秘密のヘッダー（X-Origin-Verify）を付けるのは自分の CloudFront だけ
+  if ($http_x_origin_verify != "${origin_secret}") {
+    return 403;
+  }
   # 家計簿のインポート（JSON）を送れるようにする
   client_max_body_size 10m;
 

@@ -18,10 +18,10 @@ Rails.application.configure do
   # Enable serving of images, stylesheets, and JavaScripts from an asset server.
   # config.asset_host = "http://assets.example.com"
 
-  # EC2 では nginx が 80 番(HTTP)で受けて中継するだけで、HTTPS 化していない。
-  # SSL を強制すると https へリダイレクトされて開けなくなるので、HTTPS を導入するまでは false のままにする
-  config.assume_ssl = false
-  config.force_ssl = false
+  # ブラウザとの間は CloudFront が HTTPS にしていて、CloudFront → nginx → Rails は http で届く。
+  # assume_ssl で https として扱い（リダイレクトしない）、force_ssl で Cookie に Secure を付け、HSTS を返す
+  config.assume_ssl = true
+  config.force_ssl = true
 
   # Skip http-to-https redirect for the default health check endpoint.
   # config.ssl_options = { redirect: { exclude: ->(request) { request.path == "/up" } } }

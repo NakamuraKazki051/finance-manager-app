@@ -11,7 +11,8 @@ AWSの無料枠の範囲で、収支管理アプリを動かすEC2を1台と、R
 | EC2 | `t3.micro`（無料枠の対象）、Amazon Linux 2023、ディスク20GB（gp3・暗号化） |
 | RDS | MySQL 8.4、`db.t4g.micro`（無料枠の対象）、シングルAZ、ストレージ20GB（暗号化）、自動バックアップ1日分 |
 | Elastic IP | 固定のIPアドレス。サーバーを止めて起動し直してもURLが変わらない |
-| セキュリティグループ（EC2） | 80番（nginx）だけ開ける。8080番は `expose_backend_port = true` のときだけ。SSH（22番）は開けない |
+| CloudFront | ブラウザとの間を HTTPS にする（`https://xxxx.cloudfront.net`。証明書は CloudFront の標準のもので、独自ドメインは要らない）。キャッシュはしない |
+| セキュリティグループ（EC2） | 80番（nginx）を **CloudFront からだけ** 開ける。8080番と SSH（22番）は開けない |
 | セキュリティグループ（RDS） | 3306番を **アプリのEC2からだけ** 許可する。RDSはインターネットから接続できない（`publicly_accessible = false`） |
 | Parameter Store | DBのパスワード（SecureString。標準パラメータなので無料） |
 | S3バケット | デプロイするファイル（Rails のイメージ `api-image.tar.gz` とフロントエンド `frontend.tar.gz`）の受け渡し場所。非公開・暗号化。環境と一緒に消える |
@@ -20,7 +21,7 @@ AWSの無料枠の範囲で、収支管理アプリを動かすEC2を1台と、R
 ## 構成
 
 ```
-ブラウザ ──80──▶ nginx ──/api/──▶ Rails API（8080→コンテナ内3000, Ruby 4.0）──3306──▶ RDS（MySQL）
+ブラウザ ──HTTPS──▶ CloudFront ──80──▶ nginx ──/api/──▶ Rails API（8080→コンテナ内3000, Ruby 4.0）──3306──▶ RDS（MySQL）
                   └─ それ以外 ─▶ フロントエンドのファイル
 ```
 
@@ -29,7 +30,9 @@ AWSの無料枠の範囲で、収支管理アプリを動かすEC2を1台と、R
 | 80 | nginx | `/opt/finance-manager/frontend/`（Next.js で書き出した静的ファイル）を配信し、`/api/` をバックエンドへ中継する |
 | 8080 | バックエンドAPI | Rails API（`finance-manager-api:latest` イメージ。起動のたびに `db:prepare` で未適用のマイグレーションを流す） |
 
-フロントエンドとAPIが同じオリジン（`http://<IP>`）になるので、CORSの設定は要りません。
+フロントエンドとAPIが同じオリジン（`https://xxxx.cloudfront.net`）になります。
+
+EC2 の80番は CloudFront 全体に開いているので、他人が作った CloudFront からも届きます。自分の CloudFront だけが付ける秘密のヘッダー（`X-Origin-Verify`。値は Terraform が作る）を nginx が確かめ、無ければ 403 を返します。
 
 DBのパスワードは、`terraform apply` の間だけ作られ、RDSと Parameter Store に直接渡されます（ephemeral + write-only）。Terraform の state にもGitにも残りません。作り直したいときは `db_password_version` を1つ増やして apply し、EC2の `/opt/finance-manager/.env` も新しい値に書き換えます。
 
@@ -52,7 +55,7 @@ DBのパスワードは、`terraform apply` の間だけ作られ、RDSと Param
 - CPUクレジットを `standard` にしています。CPUを使い切っても遅くなるだけで、追加料金はかかりません
 - **パブリックIPv4アドレス（Elastic IP）は無料枠の対象外です**（1時間あたり約0.005ドル、月に約3.6ドル）。無料プランのクレジットから引かれます
   - EC2を停止している間も、Elastic IP の料金はかかります。止めるのではなく `down.ps1` で消してください
-- 通信はHTTP（暗号化なし）です。HTTPSにするには独自ドメインが必要なので、必要になったら追加します
+- ブラウザとの間は CloudFront で HTTPS にしています。CloudFront は無料枠（毎月 1TB・1,000万リクエスト）の範囲で使えます。CloudFront〜EC2 の間は HTTP です
 
 ## 使い方
 
@@ -72,7 +75,7 @@ cd infra/terraform
 | `perf.ps1` | 今ある環境に E2E パフォーマンステストを流す（下の「E2E パフォーマンステスト」） |
 | `down.ps1` | RDSのスナップショットを取り、完成を待ってから `terraform destroy` で全部消す。スナップショットに失敗したら何も消さずに止まる。スナップショットは新しいものから2つだけ残す |
 
-- **作り直すたびにIPアドレス（URL）が変わります。** `up.ps1` の最後に表示されるURLを使ってください
+- **作り直すたびにURL（`https://xxxx.cloudfront.net`）が変わります。** `up.ps1` の最後に表示されるURLを使ってください
 - DBのパスワードも作り直すたびに新しくなります（自動で設定されるので、操作は要りません）
 - 中身を確認するだけなら `& $tf plan` が使えます（何も作らない）
 
@@ -169,7 +172,8 @@ Remove-Variable p
 
 ```powershell
 $ip = & $tf output -raw public_ip
-(Invoke-WebRequest "http://$ip/").StatusCode                                       # 200 なら OK
+(Invoke-WebRequest (& $tf output -raw app_url)).StatusCode                       # 200 なら OK（CloudFront 経由の HTTPS）
+try { Invoke-WebRequest "http://$ip/" -TimeoutSec 5 } catch { "接続できない: OK" }       # IP へ直接はつながらない（80番は CloudFront からだけ）
 $c = [Net.Sockets.TcpClient]::new(); $c.ConnectAsync($ip, 8080).Wait(5000); $c.Dispose()   # False なら OK（8080 は閉じている）
 $c = [Net.Sockets.TcpClient]::new(); $c.ConnectAsync((& $tf output -raw db_endpoint), 3306).Wait(5000); $c.Dispose()   # False なら OK（RDS に外から入れない）
 ```
@@ -187,7 +191,7 @@ aws rds describe-db-snapshots --region $r --snapshot-type manual --query "DBSnap
 
 | 観点 | 見るところ |
 |---|---|
-| 公開範囲 | EC2 は 80 番だけ（8080 は `expose_backend_port` のときだけ、22 は開けない）。RDS は非公開で、3306 番はアプリのEC2からだけ |
+| 公開範囲 | EC2 は 80 番を CloudFront からだけ（8080 と 22 は開けない）。nginx は秘密のヘッダーが無いリクエストを 403 にする。RDS は非公開で、3306 番はアプリのEC2からだけ |
 | 秘密情報 | DBのパスワードが Git・state・`user_data`・起動ログに出ていない。`*.tfstate` / `*.tfvars` は `.gitignore` 済み |
 | 権限 | EC2のロールは Session Manager と、パスワードのパラメータ1つを読む権限だけ |
 | 暗号化 | EBS・RDS・スナップショットが暗号化されている。IMDSv2 必須 |

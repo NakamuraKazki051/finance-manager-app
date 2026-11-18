@@ -165,7 +165,7 @@ docker compose stop    # 停止（データはボリュームに残る）
 
 ## AWS（EC2）環境
 
-`infra/terraform/` に、AWSの無料枠の範囲でEC2とRDS for MySQLを1台ずつ作るTerraformの設定があります。Rails は Docker イメージにして EC2 に送り、画面は nginx が配信します。作り方・費用の注意点は [`infra/terraform/README.md`](./infra/terraform/README.md) を参照してください。
+`infra/terraform/` に、AWSの無料枠の範囲でEC2とRDS for MySQLを1台ずつ作るTerraformの設定があります。Rails は Docker イメージにして EC2 に送り、画面は nginx が配信します。ブラウザとの間は CloudFront で HTTPS にしています（`https://xxxx.cloudfront.net`）。作り方・費用の注意点は [`infra/terraform/README.md`](./infra/terraform/README.md) を参照してください。
 
 ## 今後の予定
 

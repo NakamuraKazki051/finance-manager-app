@@ -84,7 +84,7 @@ $commands = @(
     'rm -rf frontend.old && mv frontend frontend.old && mv frontend.new frontend && rm -rf frontend.old',
     'docker compose up -d --force-recreate app web',
     'docker image prune -f > /dev/null',
-    'for i in $(seq 1 36); do code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost/api/books); if [ "$code" = 401 ]; then echo backend-ready; exit 0; fi; sleep 5; done',
+    'for i in $(seq 1 36); do code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/books); if [ "$code" = 401 ]; then echo backend-ready; exit 0; fi; sleep 5; done',
     'echo backend-not-ready; docker compose logs --tail 80 app; exit 1'
 )
 $params = Join-Path ([IO.Path]::GetTempPath()) 'finance-manager-deploy.json'
